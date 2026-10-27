@@ -1,0 +1,6 @@
+using Library.Domain; using Microsoft.EntityFrameworkCore;
+namespace Library.Infrastructure;
+public sealed class LibraryDbContext(DbContextOptions<LibraryDbContext> options):DbContext(options){
+ public DbSet<BookTitle> BookTitles=>Set<BookTitle>(); public DbSet<BookCopy> BookCopies=>Set<BookCopy>(); public DbSet<Genre> Genres=>Set<Genre>(); public DbSet<Author> Authors=>Set<Author>(); public DbSet<BookAuthor> BookAuthors=>Set<BookAuthor>();
+ protected override void OnModelCreating(ModelBuilder m){m.Entity<BookTitle>().ToTable("BookTitles").HasKey(x=>x.BookId);m.Entity<BookTitle>().Property(x=>x.Title).HasMaxLength(300).IsRequired();m.Entity<BookTitle>().Property(x=>x.ISBN).HasMaxLength(20);m.Entity<BookTitle>().HasIndex(x=>x.ISBN).IsUnique().HasFilter("[ISBN] IS NOT NULL");m.Entity<BookCopy>().ToTable("BookCopies").HasKey(x=>x.CopyId);m.Entity<BookCopy>().HasIndex(x=>x.CopyCode).IsUnique();m.Entity<BookCopy>().Property(x=>x.CopyCode).HasMaxLength(40);m.Entity<Genre>().ToTable("Genres").HasKey(x=>x.GenreId);m.Entity<Author>().ToTable("Authors").HasKey(x=>x.AuthorId);m.Entity<BookAuthor>().ToTable("BookAuthors").HasKey(x=>new{x.BookId,x.AuthorId});m.Entity<BookAuthor>().HasOne(x=>x.Book).WithMany(x=>x.BookAuthors).HasForeignKey(x=>x.BookId);m.Entity<BookAuthor>().HasOne(x=>x.Author).WithMany(x=>x.BookAuthors).HasForeignKey(x=>x.AuthorId);}
+}

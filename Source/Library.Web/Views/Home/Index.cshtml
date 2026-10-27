@@ -1,0 +1,7 @@
+@model IEnumerable<Library.Web.Controllers.BookVm>
+@{ ViewData["Title"]="Tra cứu sách"; }
+<section class="hero p-5 rounded-4 mb-4"><p class="eyebrow">THƯ VIỆN SÀI GÒN</p><h1>Khám phá tri thức</h1><p>Tìm sách theo tên, tác giả hoặc ISBN.</p><form method="get" class="d-flex gap-2"><input name="q" value="@ViewBag.Query" class="form-control form-control-lg" placeholder="Nhập tên sách, tác giả, ISBN" aria-label="Từ khóa tìm sách"/><button class="btn btn-primary btn-lg">Tìm sách</button></form></section>
+@if(ViewBag.ApiError is not null){<div class="alert alert-warning" role="status">@ViewBag.ApiError</div>}
+<div class="d-flex justify-content-between align-items-center mb-3"><h2 class="h4">Danh mục sách</h2><span class="text-secondary">@Model.Count() kết quả trang @ViewBag.Page</span></div>
+@if(!Model.Any() && ViewBag.ApiError is null){<p class="alert alert-light">Không tìm thấy sách phù hợp. Thử từ khóa khác.</p>}
+<div class="row g-3">@foreach(var b in Model){<div class="col-sm-6 col-lg-4"><article class="card h-100 shadow-sm"><div class="card-body"><span class="badge text-bg-light">@b.genre</span><h3 class="h5 mt-3">@b.title</h3><p class="text-secondary mb-1">ISBN: @(b.isbn??"Chưa cập nhật") · @(b.year?.ToString()??"Năm chưa rõ")</p><p class="mb-0">Bản sao sẵn có: <strong>@b.available</strong></p></div></article></div>}</div>
