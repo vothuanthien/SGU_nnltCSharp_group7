@@ -1,19 +1,26 @@
 # Hệ thống quản lý thư viện C#
 
-Solution Visual Studio cho đề tài quản lý thư viện. Có ASP.NET Core Web API, ASP.NET Core MVC/Razor, Windows Forms, Entity Framework Core và SQL Server dùng chung.
+Solution Visual Studio gồm ASP.NET Core Web API, ASP.NET Core MVC/Razor, Windows Forms, Entity Framework Core và SQL Server LocalDB. Dự án chạy bằng .NET và LocalDB; hiện không có cấu hình Docker Compose.
 
 ## Mở và chạy
-Chạy profile `http` của API (`http://localhost:5001`), rồi Web (`http://localhost:5002`) và Windows Forms. Hướng dẫn endpoint và thử nghiệp vụ nằm trong `HuongDanCaiDat.md`.
 
-## Cấu trúc
+Mở `QuanLyThuVien.sln` bằng Visual Studio hoặc làm theo [hướng dẫn chạy](HuongDanCaiDat.md). API dùng `http://localhost:5001`, Web dùng `http://localhost:5002`.
+
+## Cấu trúc thư mục
+
 - `Source/Library.Domain`: entities và chính sách nghiệp vụ.
-- `Source/Library.Infrastructure`: EF Core/SQL Server.
-- `Source/Library.Api`: API, nghiệp vụ mượn-trả và truy cập dữ liệu.
-- `Source/Library.Web`: giao diện bạn đọc responsive.
-- `Source/Library.Admin.WinForms`: ứng dụng desktop Windows.
-- `Database`: schema, indexes, seed data, truy vấn kiểm tra.
-- `Tests/Library.Tests`: smoke checks của chính sách nghiệp vụ.
-- `Documents`: sơ đồ kiến trúc và báo cáo cập nhật có ma trận FR/UC/US/NFR/BR.
+- `Source/Library.Infrastructure`: EF Core và SQL Server.
+- `Source/Library.Api`: API và nghiệp vụ mượn-trả.
+- `Source/Library.Web`: giao diện Web MVC.
+- `Source/Library.Admin.WinForms`: giao diện desktop Windows.
+- `Database`: schema, ràng buộc, indexes, seed data và truy vấn kiểm tra.
+- `Tests/Library.Tests`: kiểm tra chính sách nghiệp vụ.
+- `docs/reports`: báo cáo đồ án và bản lưu nguồn để tạo lại báo cáo.
+- `docs/diagrams`: sơ đồ trong báo cáo và hình tham khảo đã trích xuất.
+- `tools/reporting`: script tạo báo cáo Word.
+- `logs`: log chạy ứng dụng, log lịch sử và chẩn đoán build.
+- `.dotnet-home`: cache/config .NET cục bộ, được Git bỏ qua.
 
 ## Trạng thái
-Build .NET 8 solution đạt; unit checks quy tắc miền đạt. LocalDB đã được khởi tạo; health, tra cứu Web/Desktop, một lượt mượn/trả và rollback đã chạy thử. Chưa hoàn tất đăng nhập/phân quyền và các nghiệp vụ được liệt kê trong hướng dẫn. API demo chỉ dùng trên localhost.
+
+API và Web đã build thành công. LocalDB, health check, catalog API và trang Web đã chạy thử trên máy phát triển. Đăng nhập/phân quyền và một số nghiệp vụ vẫn chưa hoàn tất; API demo chỉ nên dùng trên localhost.

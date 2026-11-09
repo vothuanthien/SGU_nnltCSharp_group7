@@ -1,0 +1,276 @@
+using Library.Api.Security;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
+using System.Data;
+using System.Text.Json;
+
+namespace Library.Api.Controllers;
+
+/// <summary>CRUD có xác thực cho danh mục sách, bạn đọc, tác giả, thể loại và nhà xuất bản.</summary>
+[ApiController]
+[Route("api/admin/catalog")]
+public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogController> logger) : ControllerBase
+{
+    private sealed record Field(string JsonName, string Column, SqlDbType Type, int Size = 0,
+        bool Required = false, object? DefaultValue = null);
+
+    private sealed record Resource(string Table, string IdColumn, string SelectSql, string SearchSql,
+        string OrderBy, Field[] Fields, string? SoftDeleteSql = null);
+
+    // Tên bảng, cột và biểu thức SQL chỉ lấy từ allowlist này; dữ liệu người dùng luôn truyền bằng tham số.
+    private static readonly IReadOnlyDictionary<string, Resource> Resources =
+        new Dictionary<string, Resource>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["books"] = new("BookTitles", "BookId",
+                "SELECT TOP (500) b.BookId AS id,b.Title AS title,b.ISBN AS isbn,b.PublishedYear AS publishedYear," +
+                "b.Description AS description,b.GenreId AS genreId,g.Name AS genre,b.PublisherId AS publisherId," +
+                "p.Name AS publisher,b.IsActive AS isActive FROM BookTitles b LEFT JOIN Genres g ON g.GenreId=b.GenreId " +
+                "LEFT JOIN Publishers p ON p.PublisherId=b.PublisherId",
+                "b.Title LIKE @term OR ISNULL(b.ISBN,N'') LIKE @term", "b.Title",
+                [
+                    new("title", "Title", SqlDbType.NVarChar, 300, true),
+                    new("isbn", "ISBN", SqlDbType.NVarChar, 20),
+                    new("publishedYear", "PublishedYear", SqlDbType.Int),
+                    new("description", "Description", SqlDbType.NVarChar, -1),
+                    new("genreId", "GenreId", SqlDbType.Int),
+                    new("publisherId", "PublisherId", SqlDbType.Int),
+                    new("isActive", "IsActive", SqlDbType.Bit, Required: true, DefaultValue: true)
+                ], "UPDATE BookTitles SET IsActive=0 WHERE BookId=@id"),
+
+            ["readers"] = new("Readers", "ReaderId",
+                "SELECT TOP (500) ReaderId AS id,ReaderCode AS readerCode,CardNumber AS cardNumber,FullName AS fullName," +
+                "Email AS email,Phone AS phone,RegisteredAt AS registeredAt,ExpiryDate AS expiryDate,Status AS status FROM Readers",
+                "ReaderCode LIKE @term OR CardNumber LIKE @term OR FullName LIKE @term", "FullName",
+                [
+                    new("readerCode", "ReaderCode", SqlDbType.NVarChar, 30, true),
+                    new("cardNumber", "CardNumber", SqlDbType.NVarChar, 30, true),
+                    new("fullName", "FullName", SqlDbType.NVarChar, 200, true),
+                    new("email", "Email", SqlDbType.NVarChar, 254),
+                    new("phone", "Phone", SqlDbType.NVarChar, 30),
+                    new("registeredAt", "RegisteredAt", SqlDbType.Date, Required: true, DefaultValue: DateTime.Today),
+                    new("expiryDate", "ExpiryDate", SqlDbType.Date, Required: true),
+                    new("status", "Status", SqlDbType.VarChar, 20, Required: true, DefaultValue: "Active")
+                ], "UPDATE Readers SET Status='Inactive' WHERE ReaderId=@id"),
+
+            ["genres"] = new("Genres", "GenreId",
+                "SELECT TOP (500) GenreId AS id,Name AS name,IsActive AS isActive FROM Genres",
+                "Name LIKE @term", "Name",
+                [new("name", "Name", SqlDbType.NVarChar, 100, true),
+                 new("isActive", "IsActive", SqlDbType.Bit, Required: true, DefaultValue: true)],
+                "UPDATE Genres SET IsActive=0 WHERE GenreId=@id"),
+
+            ["authors"] = new("Authors", "AuthorId",
+                "SELECT TOP (500) AuthorId AS id,FullName AS fullName FROM Authors",
+                "FullName LIKE @term", "FullName",
+                [new("fullName", "FullName", SqlDbType.NVarChar, 200, true)]),
+
+            ["publishers"] = new("Publishers", "PublisherId",
+                "SELECT TOP (500) PublisherId AS id,Name AS name FROM Publishers",
+                "Name LIKE @term", "Name",
+                [new("name", "Name", SqlDbType.NVarChar, 200, true)])
+        };
+
+    // Trả tối đa 500 bản ghi theo danh mục; tìm kiếm chỉ ghép từ các câu SQL trong allowlist.
+    [HttpGet("{resource}")]
+    public async Task<IActionResult> List(string resource, [FromQuery] string? q)
+    {
+        if (!Resources.TryGetValue(resource, out var definition)) return NotFound();
+
+        await using var connection = db.Create();
+        await connection.OpenAsync();
+        await using var command = new SqlCommand(
+            $"{definition.SelectSql} WHERE (@term=N'' OR ({definition.SearchSql})) ORDER BY {definition.OrderBy}", connection);
+        command.Parameters.Add("@term", SqlDbType.NVarChar, 300).Value =
+            string.IsNullOrWhiteSpace(q) ? string.Empty : $"%{q.Trim()}%";
+
+        var rows = new List<Dictionary<string, object?>>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < reader.FieldCount; i++)
+                row[reader.GetName(i)] = await reader.IsDBNullAsync(i) ? null : reader.GetValue(i);
+            rows.Add(row);
+        }
+        return Ok(rows);
+    }
+
+    // Kiểm tra trường đầu vào, tạo bản ghi và ghi AuditLogs trong cùng transaction.
+    [HttpPost("{resource}")]
+    public async Task<IActionResult> Create(string resource, [FromBody] JsonElement body)
+    {
+        if (!Resources.TryGetValue(resource, out var definition)) return NotFound();
+        if (!TryReadValues(definition, body, out var values, out var error)) return BadRequest(new { error });
+
+        await using var connection = db.Create();
+        await connection.OpenAsync();
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
+        try
+        {
+            var columns = string.Join(',', definition.Fields.Select(x => $"[{x.Column}]"));
+            var parameters = string.Join(',', definition.Fields.Select(x => $"@{x.JsonName}"));
+            await using var command = new SqlCommand(
+                $"INSERT INTO [{definition.Table}] ({columns}) OUTPUT INSERTED.[{definition.IdColumn}] VALUES ({parameters})",
+                connection, transaction);
+            AddParameters(command, definition, values);
+            var id = Convert.ToInt32(await command.ExecuteScalarAsync());
+            await WriteAudit(connection, transaction, "Create", resource, id);
+            await transaction.CommitAsync();
+            return CreatedAtAction(nameof(List), new { resource }, new { id });
+        }
+        catch (SqlException ex)
+        {
+            await transaction.RollbackAsync();
+            logger.LogWarning(ex, "Không thể tạo bản ghi resource={Resource}", resource);
+            return SqlConflict(ex);
+        }
+    }
+
+    // Cập nhật toàn bộ trường được cho phép và ghi lại người thực hiện thao tác.
+    [HttpPut("{resource}/{id:int}")]
+    public async Task<IActionResult> Update(string resource, int id, [FromBody] JsonElement body)
+    {
+        if (!Resources.TryGetValue(resource, out var definition)) return NotFound();
+        if (!TryReadValues(definition, body, out var values, out var error)) return BadRequest(new { error });
+
+        await using var connection = db.Create();
+        await connection.OpenAsync();
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
+        try
+        {
+            var assignments = string.Join(',', definition.Fields.Select(x => $"[{x.Column}]=@{x.JsonName}"));
+            await using var command = new SqlCommand(
+                $"UPDATE [{definition.Table}] SET {assignments} WHERE [{definition.IdColumn}]=@id", connection, transaction);
+            AddParameters(command, definition, values);
+            command.Parameters.Add("@id", SqlDbType.Int).Value = id;
+            if (await command.ExecuteNonQueryAsync() == 0)
+            {
+                await transaction.RollbackAsync();
+                return NotFound(new { error = "Không tìm thấy dữ liệu cần cập nhật." });
+            }
+            await WriteAudit(connection, transaction, "Update", resource, id);
+            await transaction.CommitAsync();
+            return NoContent();
+        }
+        catch (SqlException ex)
+        {
+            await transaction.RollbackAsync();
+            logger.LogWarning(ex, "Không thể cập nhật resource={Resource} id={Id}", resource, id);
+            return SqlConflict(ex);
+        }
+    }
+
+    // Xóa cứng chỉ với danh mục không có lịch sử; những danh mục nghiệp vụ được ngừng hoạt động.
+    [HttpDelete("{resource}/{id:int}")]
+    public async Task<IActionResult> Delete(string resource, int id)
+    {
+        if (!Resources.TryGetValue(resource, out var definition)) return NotFound();
+        var sql = definition.SoftDeleteSql ?? $"DELETE FROM [{definition.Table}] WHERE [{definition.IdColumn}]=@id";
+
+        await using var connection = db.Create();
+        await connection.OpenAsync();
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
+        try
+        {
+            await using var command = new SqlCommand(sql, connection, transaction);
+            command.Parameters.Add("@id", SqlDbType.Int).Value = id;
+            if (await command.ExecuteNonQueryAsync() == 0)
+            {
+                await transaction.RollbackAsync();
+                return NotFound(new { error = "Không tìm thấy dữ liệu cần xóa." });
+            }
+            await WriteAudit(connection, transaction, definition.SoftDeleteSql is null ? "Delete" : "Deactivate", resource, id);
+            await transaction.CommitAsync();
+            return NoContent();
+        }
+        catch (SqlException ex)
+        {
+            await transaction.RollbackAsync();
+            logger.LogWarning(ex, "Không thể xóa resource={Resource} id={Id}", resource, id);
+            return SqlConflict(ex);
+        }
+    }
+
+    private bool TryReadValues(Resource definition, JsonElement body, out object?[] values, out string? error)
+    {
+        values = new object?[definition.Fields.Length];
+        error = null;
+        if (body.ValueKind != JsonValueKind.Object)
+        {
+            error = "Dữ liệu gửi lên không hợp lệ.";
+            return false;
+        }
+
+        try
+        {
+            for (var i = 0; i < definition.Fields.Length; i++)
+            {
+                var field = definition.Fields[i];
+                if (!body.TryGetProperty(field.JsonName, out var value) || value.ValueKind == JsonValueKind.Null)
+                {
+                    if (field.DefaultValue is not null) values[i] = field.DefaultValue;
+                    else if (field.Required) throw new ArgumentException($"Thiếu trường bắt buộc: {field.JsonName}.");
+                    continue;
+                }
+
+                values[i] = field.Type switch
+                {
+                    SqlDbType.Int => value.GetInt32(),
+                    SqlDbType.Bit => value.GetBoolean(),
+                    SqlDbType.Date => value.GetDateTime().Date,
+                    SqlDbType.NVarChar or SqlDbType.VarChar => ReadString(value, field),
+                    _ => throw new ArgumentException($"Kiểu dữ liệu chưa được hỗ trợ: {field.JsonName}.")
+                };
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or FormatException or InvalidOperationException)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    private static string? ReadString(JsonElement value, Field field)
+    {
+        var text = value.GetString()?.Trim();
+        if (string.IsNullOrEmpty(text))
+        {
+            if (field.Required) throw new ArgumentException($"Trường {field.JsonName} không được để trống.");
+            return null;
+        }
+        if (field.Size > 0 && text.Length > field.Size)
+            throw new ArgumentException($"Trường {field.JsonName} vượt quá {field.Size} ký tự.");
+        return text;
+    }
+
+    private static void AddParameters(SqlCommand command, Resource definition, object?[] values)
+    {
+        for (var i = 0; i < definition.Fields.Length; i++)
+        {
+            var field = definition.Fields[i];
+            var parameter = new SqlParameter($"@{field.JsonName}", field.Type) { Value = values[i] ?? DBNull.Value };
+            if (field.Size != 0) parameter.Size = field.Size;
+            command.Parameters.Add(parameter);
+        }
+    }
+
+    private async Task WriteAudit(SqlConnection connection, SqlTransaction transaction, string action, string entity, int id)
+    {
+        var session = HttpContext.Items[AdminSessionStore.ContextItemKey] as AdminSession;
+        await using var command = new SqlCommand(
+            "INSERT INTO AuditLogs(Username,Action,Entity,EntityId) VALUES(@username,@action,@entity,@id)", connection, transaction);
+        command.Parameters.Add("@username", SqlDbType.NVarChar, 80).Value = session?.Username ?? "unknown";
+        command.Parameters.Add("@action", SqlDbType.NVarChar, 100).Value = action;
+        command.Parameters.Add("@entity", SqlDbType.NVarChar, 100).Value = entity;
+        command.Parameters.Add("@id", SqlDbType.NVarChar, 80).Value = id.ToString();
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private IActionResult SqlConflict(SqlException ex) => ex.Number switch
+    {
+        2601 or 2627 => Conflict(new { error = "Giá trị bị trùng với dữ liệu đã có." }),
+        547 => Conflict(new { error = "Không thể xóa dữ liệu đang được mục khác sử dụng." }),
+        _ => StatusCode(500, new { error = "Không thể lưu dữ liệu lúc này. Hãy xem log API để biết chi tiết." })
+    };
+}

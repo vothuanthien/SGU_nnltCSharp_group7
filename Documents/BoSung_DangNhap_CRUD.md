@@ -23,12 +23,11 @@ Lưu ý: form này mới quản lý **đầu sách** (`BookTitles`), chưa quả
 
 ## 2. Chạy lần đầu
 
-1. Chạy các script SQL 01–05 như hướng dẫn chính.
-2. Chạy thêm `Database/06_CreateDemoAdmin.sql` trên database `LibraryManagement`.
-3. Mở `QuanLyThuVien.sln`, restore NuGet Packages và Build Solution.
-4. Chạy `Library.Api` bằng profile `http`.
-5. Chạy `Library.Admin.WinForms`.
-6. Đăng nhập demo:
+1. Chạy các script SQL 01–06 như hướng dẫn chính.
+2. Mở `QuanLyThuVien.sln`, restore NuGet Packages và Build Solution.
+3. Chạy `Library.Api` bằng profile `http`.
+4. Chạy `Library.Admin.WinForms`.
+5. Đăng nhập demo:
    - Username: `admin`
    - Password: `Admin@12345`
    - Role: `Admin`
