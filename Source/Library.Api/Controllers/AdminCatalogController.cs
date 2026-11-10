@@ -1,4 +1,4 @@
-using Library.Api.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using System.Data;
@@ -6,13 +6,14 @@ using System.Text.Json;
 
 namespace Library.Api.Controllers;
 
-/// <summary>CRUD có xác thực cho danh mục sách, bạn đọc, tác giả, thể loại và nhà xuất bản.</summary>
+/// <summary>CRUD có xác thực cho sách, bản sao, bạn đọc, tác giả, thể loại và nhà xuất bản.</summary>
 [ApiController]
 [Route("api/admin/catalog")]
+[Authorize(Roles = "Admin,Librarian")]
 public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogController> logger) : ControllerBase
 {
     private sealed record Field(string JsonName, string Column, SqlDbType Type, int Size = 0,
-        bool Required = false, object? DefaultValue = null);
+        bool Required = false, object? DefaultValue = null, string[]? Allowed = null);
 
     private sealed record Resource(string Table, string IdColumn, string SelectSql, string SearchSql,
         string OrderBy, Field[] Fields, string? SoftDeleteSql = null);
@@ -37,6 +38,20 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
                     new("isActive", "IsActive", SqlDbType.Bit, Required: true, DefaultValue: true)
                 ], "UPDATE BookTitles SET IsActive=0 WHERE BookId=@id"),
 
+            ["copies"] = new("BookCopies", "CopyId",
+                "SELECT TOP (500) c.CopyId AS id,c.CopyCode AS copyCode,c.BookId AS bookId,b.Title AS title," +
+                "c.ShelfLocation AS shelfLocation,c.AcquiredAt AS acquiredAt,c.Status AS status " +
+                "FROM BookCopies c JOIN BookTitles b ON b.BookId=c.BookId",
+                "c.CopyCode LIKE @term OR b.Title LIKE @term OR ISNULL(c.ShelfLocation,N'') LIKE @term", "c.CopyCode",
+                [
+                    new("copyCode", "CopyCode", SqlDbType.NVarChar, 40, true),
+                    new("bookId", "BookId", SqlDbType.Int, Required: true),
+                    new("shelfLocation", "ShelfLocation", SqlDbType.NVarChar, 80),
+                    new("acquiredAt", "AcquiredAt", SqlDbType.Date),
+                    new("status", "Status", SqlDbType.VarChar, 20, Required: true, DefaultValue: "Available",
+                        Allowed: ["Available", "Borrowed", "Reserved", "Damaged", "Lost", "Retired"])
+                ], "UPDATE BookCopies SET Status='Retired' WHERE CopyId=@id AND Status<>'Borrowed'"),
+
             ["readers"] = new("Readers", "ReaderId",
                 "SELECT TOP (500) ReaderId AS id,ReaderCode AS readerCode,CardNumber AS cardNumber,FullName AS fullName," +
                 "Email AS email,Phone AS phone,RegisteredAt AS registeredAt,ExpiryDate AS expiryDate,Status AS status FROM Readers",
@@ -49,7 +64,7 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
                     new("phone", "Phone", SqlDbType.NVarChar, 30),
                     new("registeredAt", "RegisteredAt", SqlDbType.Date, Required: true, DefaultValue: DateTime.Today),
                     new("expiryDate", "ExpiryDate", SqlDbType.Date, Required: true),
-                    new("status", "Status", SqlDbType.VarChar, 20, Required: true, DefaultValue: "Active")
+                    new("status", "Status", SqlDbType.VarChar, 20, Required: true, DefaultValue: "Active", Allowed: ["Active", "Inactive", "Suspended"])
                 ], "UPDATE Readers SET Status='Inactive' WHERE ReaderId=@id"),
 
             ["genres"] = new("Genres", "GenreId",
@@ -177,7 +192,7 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
             if (await command.ExecuteNonQueryAsync() == 0)
             {
                 await transaction.RollbackAsync();
-                return NotFound(new { error = "Không tìm thấy dữ liệu cần xóa." });
+                return NotFound(new { error = "Không tìm thấy dữ liệu hoặc dữ liệu không thể xóa ở trạng thái hiện tại (ví dụ bản sao đang được mượn)." });
             }
             await WriteAudit(connection, transaction, definition.SoftDeleteSql is null ? "Delete" : "Deactivate", resource, id);
             await transaction.CommitAsync();
@@ -187,6 +202,70 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
         {
             await transaction.RollbackAsync();
             logger.LogWarning(ex, "Không thể xóa resource={Resource} id={Id}", resource, id);
+            return SqlConflict(ex);
+        }
+    }
+
+    public sealed record BookAuthorsRequest(int[]? AuthorIds);
+
+    // Danh sách mã tác giả hiện tại của một đầu sách.
+    [HttpGet("books/{id:int}/authors")]
+    public async Task<IActionResult> GetBookAuthors(int id)
+    {
+        await using var connection = db.Create();
+        await connection.OpenAsync();
+        await using var command = new SqlCommand("SELECT AuthorId FROM BookAuthors WHERE BookId=@id ORDER BY AuthorId", connection);
+        command.Parameters.Add("@id", SqlDbType.Int).Value = id;
+        var ids = new List<int>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) ids.Add(reader.GetInt32(0));
+        return Ok(new { authorIds = ids });
+    }
+
+    // Thay toàn bộ danh sách tác giả của đầu sách trong một transaction (bảng nối nhiều-nhiều BookAuthors).
+    [HttpPut("books/{id:int}/authors")]
+    public async Task<IActionResult> SetBookAuthors(int id, [FromBody] BookAuthorsRequest request)
+    {
+        var authorIds = (request.AuthorIds ?? []).Distinct().ToArray();
+        await using var connection = db.Create();
+        await connection.OpenAsync();
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
+        try
+        {
+            await using (var exists = new SqlCommand("SELECT COUNT(*) FROM BookTitles WHERE BookId=@id", connection, transaction))
+            {
+                exists.Parameters.Add("@id", SqlDbType.Int).Value = id;
+                if (Convert.ToInt32(await exists.ExecuteScalarAsync()) == 0)
+                {
+                    await transaction.RollbackAsync();
+                    return NotFound(new { error = "Không tìm thấy đầu sách." });
+                }
+            }
+            await using (var clear = new SqlCommand("DELETE FROM BookAuthors WHERE BookId=@id", connection, transaction))
+            {
+                clear.Parameters.Add("@id", SqlDbType.Int).Value = id;
+                await clear.ExecuteNonQueryAsync();
+            }
+            foreach (var authorId in authorIds)
+            {
+                await using var add = new SqlCommand("INSERT INTO BookAuthors(BookId,AuthorId) VALUES(@book,@author)", connection, transaction);
+                add.Parameters.Add("@book", SqlDbType.Int).Value = id;
+                add.Parameters.Add("@author", SqlDbType.Int).Value = authorId;
+                await add.ExecuteNonQueryAsync();
+            }
+            await WriteAudit(connection, transaction, "SetAuthors", "books", id);
+            await transaction.CommitAsync();
+            return NoContent();
+        }
+        catch (SqlException ex) when (ex.Number == 547)
+        {
+            await transaction.RollbackAsync();
+            return Conflict(new { error = "Có mã tác giả không tồn tại." });
+        }
+        catch (SqlException ex)
+        {
+            await transaction.RollbackAsync();
+            logger.LogWarning(ex, "Không thể gán tác giả cho sách {BookId}", id);
             return SqlConflict(ex);
         }
     }
@@ -241,6 +320,8 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
         }
         if (field.Size > 0 && text.Length > field.Size)
             throw new ArgumentException($"Trường {field.JsonName} vượt quá {field.Size} ký tự.");
+        if (field.Allowed is not null && !field.Allowed.Contains(text, StringComparer.OrdinalIgnoreCase))
+            throw new ArgumentException($"Trường {field.JsonName} chỉ nhận: {string.Join(", ", field.Allowed)}.");
         return text;
     }
 
@@ -257,10 +338,9 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
 
     private async Task WriteAudit(SqlConnection connection, SqlTransaction transaction, string action, string entity, int id)
     {
-        var session = HttpContext.Items[AdminSessionStore.ContextItemKey] as AdminSession;
         await using var command = new SqlCommand(
             "INSERT INTO AuditLogs(Username,Action,Entity,EntityId) VALUES(@username,@action,@entity,@id)", connection, transaction);
-        command.Parameters.Add("@username", SqlDbType.NVarChar, 80).Value = session?.Username ?? "unknown";
+        command.Parameters.Add("@username", SqlDbType.NVarChar, 80).Value = User.Identity?.Name ?? "unknown";
         command.Parameters.Add("@action", SqlDbType.NVarChar, 100).Value = action;
         command.Parameters.Add("@entity", SqlDbType.NVarChar, 100).Value = entity;
         command.Parameters.Add("@id", SqlDbType.NVarChar, 80).Value = id.ToString();

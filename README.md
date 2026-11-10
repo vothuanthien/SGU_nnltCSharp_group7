@@ -22,5 +22,7 @@ Mở `QuanLyThuVien.sln` bằng Visual Studio hoặc làm theo [hướng dẫn c
 - `.dotnet-home`: cache/config .NET cục bộ, được Git bỏ qua.
 
 ## Trạng thái
+Xem `Documents/ImplementationStatus.md` (đã có / chưa có) và `Documents/KiemThu.md` (mục nào đã chạy thật). Tóm tắt: Domain build và 20 kiểm tra đơn vị đạt; handler xác thực đã chạy thử; **chưa** build toàn solution, chưa chạy với SQL Server và Docker trong môi trường soạn bản này, nên cần chạy checklist trước khi nộp.
 
-API và Web đã build thành công. LocalDB, health check, catalog API và trang Web đã chạy thử trên máy phát triển. Đăng nhập/phân quyền và một số nghiệp vụ vẫn chưa hoàn tất; API demo chỉ nên dùng trên localhost.
+## Docker
+`docker compose up -d --build` chạy 2 container (SQL Server + Library.Api); Web và WinForms chạy trên Windows. Chi tiết: `Documents/Docker.md`.

@@ -1,30 +1,22 @@
 # Đối chiếu yêu cầu và trạng thái
 
-Tài liệu môn học yêu cầu ứng dụng Web C#, ứng dụng quản trị Windows Forms, dùng chung SQL Server; báo cáo lần 1 cung cấp phân tích thiết kế chứ không chứng minh chức năng đã chạy.
+Cập nhật sau đợt rà soát (xem `KiemThu.md` để biết mục nào đã chạy). **"Đã viết" không có nghĩa "đã kiểm thử tích hợp"**: ngoài mục A trong `KiemThu.md`, mọi thứ dưới đây chưa được chạy với SQL Server.
 
-| Nhóm | Mã giữ nguyên | Trạng thái trong gói hiện tại |
-|---|---|---|
-| Đăng nhập/quyền | FR-01..02, UC-01, UC-08, US tương ứng | Bản bổ sung có API login JWT, PBKDF2, role Admin/Librarian và tài khoản demo tạo bằng script 06; cần build/test trên máy phát triển. |
-| Sách/bản sao/danh mục | FR-03..05, UC-02, UC-05, US-01..02 | Bản bổ sung có API CRUD đầu sách và form WinForms; quản lý bản sao và danh mục phụ chưa hoàn tất; cần build/test. |
-| Mượn | FR-06..07, UC-03, BR-03..06, BR-12 | Nghiệp vụ nền đã chạy trên LocalDB; bản bổ sung thêm `[Authorize]` role Admin/Librarian và lấy StaffUsername từ JWT; cần chạy lại kiểm thử sau bảo vệ endpoint. Chưa kiểm thử đồng thời hai thủ thư. |
-| Trả/phạt/quá hạn | FR liên quan, UC-04, BR-07..09, US liên quan | Nghiệp vụ nền đã nhận trả bình thường trên LocalDB; bản bổ sung thêm `[Authorize]` role Admin/Librarian và lấy StaffUsername từ JWT; cần chạy lại kiểm thử sau bảo vệ endpoint. Chưa có UI mượn/trả. |
-| Bạn đọc/đặt trước/lịch sử | FR liên quan, UC-06, BR-11 | Schema cơ sở; endpoint xác thực/ủy quyền chưa hoàn tất. |
-| Báo cáo/nhật ký/backup | UC-07, UC-09, NFR-07, NFR-09 | Bảng nền; quy trình và màn hình chưa hoàn tất. |
-| Chất lượng | NFR-01..10 | Mục tiêu thiết kế; chưa đo hiệu năng, an toàn, khả năng truy cập hay khôi phục. |
+| Nhóm | Trạng thái |
+|---|---|
+| Xác thực | Có: `POST /api/auth/login`, mật khẩu PBKDF2-SHA256, **bearer token ngẫu nhiên lưu trong bộ nhớ API, hết hạn sau 8 giờ. Đây không phải JWT.** Handler `SessionAuthenticationHandler` đã chạy thử (401/403/200). |
+| Phân quyền | `[Authorize(Roles="Admin,Librarian")]` trên `/api/admin/catalog`, `/api/loans`, `/api/returns`. Hiện Admin và Librarian có quyền như nhau; chưa có chức năng chỉ riêng Admin (quản lý tài khoản chưa làm). |
+| Mượn / trả | Đã viết lại: tên thủ thư lấy từ phiên đăng nhập, dùng `LoanPolicy` của Domain cho giới hạn mượn/hạn trả/phạt, ngày trả theo đồng hồ SQL Server. Chưa kiểm thử tích hợp. Mất sách: chỉ đổi trạng thái bản sao, **chưa tính phí bồi thường**. |
+| CRUD | Sách, bản sao, bạn đọc, tác giả, thể loại, NXB (API + WinForms); gán tác giả cho sách. Xóa mềm với sách/bản sao/bạn đọc/thể loại. |
+| Web bạn đọc | Danh mục, tìm kiếm, lọc thể loại, phân trang, chi tiết sách, trang hướng dẫn. **Chưa có** đăng nhập bạn đọc, đặt trước, lịch sử cá nhân. |
+| Đặt trước, thanh toán phạt, nhật ký xem, báo cáo, backup | **Chưa triển khai.** Bảng `Reservations`, `FinePayments` có trong schema nhưng chưa có API/giao diện. `AuditLogs` chỉ được ghi khi CRUD, chưa có màn hình xem. |
+| Docker | Đã viết `Dockerfile`, `docker-compose.yml`, `.env.example`, `.dockerignore`, khởi tạo DB tự động. **Chưa chạy thử** (xem `Docker.md`). |
+| Kiểm thử | Console test 20 kiểm tra đạt (Domain, băm mật khẩu, kho phiên). Chưa dùng xUnit; chưa có test tích hợp. |
+| Bảo mật còn thiếu | Chưa giới hạn số lần đăng nhập sai; chưa có đổi mật khẩu/tạo tài khoản; chỉ HTTP trên localhost (không dùng triển khai thật). |
 
-## Bất định và giả định
-- Số ngày mượn, số cuốn tối đa, mức phạt và ưu tiên giữ chỗ cần thư viện xác nhận; schema dùng cấu hình cho LoanDays/FinePerDay/MaxLoans.
-- Báo cáo gốc mô tả mô hình giả định, chưa có khảo sát thực địa.
-- Đã build solution đạt 0 cảnh báo/0 lỗi; chạy unit checks đạt; LocalDB chạy được, scripts 01–05 hoàn tất, API health/tra cứu và Web/Desktop đã đọc dữ liệu mẫu. Chưa kiểm thử concurrency, bảo mật, backup/restore hoặc toàn bộ giao diện/nghiệp vụ.
-
-Lưu ý bảo mật: bản bổ sung đã đặt `[Authorize(Roles = "Admin,Librarian")]` cho API mượn/trả và lấy tên thủ thư từ claim. Do chưa build/chạy lại sau khi thêm JWT, cần kiểm thử 401/200 và các giao dịch mượn/trả trên máy phát triển trước khi coi là hoàn tất.
-
-## Chạy demo đã xác minh
-- SQL Server LocalDB instance `(localdb)\MSSQLLocalDB`; database `LibraryManagement`.
-- API health `http://localhost:5001/health`; Web `http://localhost:5002`; Windows Forms đã mở.
-- Có 1 phiếu mượn + 1 lần trả demo trong database; hiện các bản sao đều Available.
-
-
-## Bổ sung mã nguồn sau bản ZIP gốc
-
-Đã thêm các file login JWT, PasswordHasher PBKDF2, TokenService, API CRUD đầu sách, form LoginForm và BookManagementForm; cập nhật API mượn/trả để yêu cầu token. Tài khoản demo được tạo bởi `Database/06_CreateDemoAdmin.sql`. Đây là trạng thái mã nguồn đã bổ sung, **chưa phải kết quả kiểm thử**: cần restore NuGet, build solution và chạy checklist trong `Documents/BoSung_DangNhap_CRUD.md`.
+## Thay đổi trong đợt này
+- Sửa lỗi bảo mật: `/api/loans` và `/api/returns` trước đây **không** yêu cầu đăng nhập và tin `staffUsername` do client gửi (tài liệu cũ ghi sai là đã bảo vệ).
+- Sửa lỗi WinForms: lưới bind trực tiếp `Dictionary` nên hiển thị sai cột; chuyển sang `DataTable`.
+- Bỏ CORS (Web gọi API từ phía máy chủ, WinForms là ứng dụng native nên không cần), bỏ middleware chuyển HTTPS gây lỗi trong container.
+- Thêm xử lý lỗi toàn cục (`{ "error": ... }`, có log), `/health/db`.
+- Xóa file mẫu thừa (`WeatherForecast*`, `Class1.cs`, `Form1*`).

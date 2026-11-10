@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+.vs/
+.git/
+.dotnet-home/
+.nuget/
+*.user
+*.log
+.env
+Documents/
+Tests/
+Source/Library.Web/
+Source/Library.Admin.WinForms/
+**/wwwroot/lib/

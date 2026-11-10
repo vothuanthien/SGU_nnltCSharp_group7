@@ -54,3 +54,12 @@ dotnet run --project .\Source\Library.Admin.WinForms\Library.Admin.WinForms.cspr
 - Nếu LocalDB không kết nối, kiểm tra `SqlLocalDB info MSSQLLocalDB`, rồi thử khởi động lại instance.
 - Nếu cổng đang được dùng, dừng phiên cũ bằng `Ctrl+C` rồi chạy lại.
 - Nếu thiếu .NET SDK, cài .NET 8 SDK và kiểm tra bằng `dotnet --list-sdks`.
+
+
+## Chạy bằng Docker (khuyến nghị cho demo)
+Xem `Documents/Docker.md`. Tóm tắt: `copy .env.example .env`, sửa mật khẩu, `docker compose up -d --build`, kiểm tra `http://localhost:5001/health/db`, rồi chạy Web và WinForms trên Windows (đăng nhập `admin` với `ADMIN_PASSWORD`).
+
+## Cập nhật so với phần "Luồng hiện có" ở trên
+- `POST /api/loans` và `POST /api/returns` **yêu cầu đăng nhập** (header `Authorization: Bearer <token>`) và **không còn nhận `staffUsername`**: tên thủ thư lấy từ phiên.
+- Cơ chế xác thực là bearer token phiên (không phải JWT). Chạy local không Docker vẫn dùng script `06_CreateDemoAdmin.sql` (tài khoản demo `admin`, chỉ dùng localhost).
+- Địa chỉ API: Web đọc `LibraryApi:BaseUrl` (mặc định `http://localhost:5001/`); WinForms đọc biến môi trường `LIBRARY_API_URL` (cùng mặc định).

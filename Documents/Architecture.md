@@ -2,26 +2,31 @@
 
 ```mermaid
 flowchart LR
-  Desk[Windows Forms] -->|Đăng nhập JWT / Bearer Token| API[ASP.NET Core Web API]
-  Web[ASP.NET Core MVC] -->|Tra cứu công khai| API
-  API -->|EF Core + truy vấn nghiệp vụ| SQL[(SQL Server)]
+  Web["Library.Web (MVC, Windows)"] -->|HTTP :5001| API
+  Win["Library.Admin.WinForms (Windows)"] -->|HTTP :5001 + Bearer token| API
+  subgraph Docker
+    API["Library.Api (container 1)"] -->|sqlserver:1433| SQL[("SQL Server (container 2)")]
+  end
+  API -.-> Dom["Library.Domain: thực thể + LoanPolicy"]
+  API -.-> Inf["Library.Infrastructure: EF Core DbContext"]
 ```
 
-Desktop và Web không truy cập SQL Server trực tiếp; API là lớp truy cập nghiệp vụ dùng chung. API xác thực nhân viên bằng JWT và áp dụng role Admin/Librarian cho CRUD đầu sách, mượn và trả. Tra cứu danh mục sách công khai vẫn không yêu cầu token. Bảng `Accounts` lưu password hash PBKDF2-SHA256, không lưu mật khẩu thuần.
+## Trách nhiệm từng project
+| Project | Trách nhiệm |
+|---|---|
+| Library.Domain | Thực thể, quy tắc nghiệp vụ thuần (`LoanPolicy`). Không phụ thuộc hạ tầng. |
+| Library.Infrastructure | `LibraryDbContext` (EF Core, SQL Server). |
+| Library.Api | Xác thực/phân quyền, validation, nghiệp vụ mượn-trả (transaction), CRUD quản trị, API công khai tra cứu. Duy nhất truy cập SQL Server. |
+| Library.Web | Giao diện bạn đọc, chỉ gọi API. |
+| Library.Admin.WinForms | Giao diện thủ thư/quản trị, chỉ gọi API. |
 
-Schema tách đầu sách và bản sao; bảng trung gian biểu diễn quan hệ nhiều-nhiều giữa sách và tác giả; giao dịch mượn/trả giữ lịch sử.
+Luồng: `Web/WinForms → HTTP → Library.Api → (EF Core hoặc ADO.NET) → SQL Server`. Truy vấn tra cứu công khai dùng EF Core; các thao tác ghi cần transaction nghiêm ngặt (mượn/trả, CRUD allowlist) dùng ADO.NET tham số hóa.
 
-## Ma trận quyền hiện được triển khai một phần
-
-| Chức năng | Quản trị viên | Thủ thư | Bạn đọc |
-|---|---:|---:|---:|
-| Đăng nhập ứng dụng Desktop | Có | Có | Không |
-| CRUD đầu sách qua API/Desktop | Có | Có | Không |
-| Mượn, trả qua API | Có | Có | Không |
-| Tra cứu sách công khai | Có | Có | Có |
-| Quản lý tác giả/thể loại/bản sao | Chưa có màn hình | Chưa có màn hình | Không |
-| Hồ sơ/lịch sử cá nhân | Chưa triển khai | Chưa triển khai | Chưa triển khai |
-
-## Ranh giới hiện tại
-
-Phần bổ sung mới hoàn thiện mã nguồn đăng nhập nhân viên, phân quyền một số API và CRUD đầu sách. Quản lý bản sao, bạn đọc, đặt trước, thanh toán phạt, hồ sơ/lịch sử, báo cáo, nhật ký và backup/restore còn phải triển khai. Mã nguồn bổ sung cần được restore/build và kiểm thử trên máy phát triển trước khi xem là chức năng đã xác minh.
+## Ma trận quyền
+| Chức năng | Admin | Librarian | Bạn đọc |
+|---|---|---|---|
+| Quản lý tài khoản, vai trò | Dự kiến (chưa làm) | Không | Không |
+| CRUD sách, bản sao, bạn đọc, danh mục | Có | Có | Không |
+| Mượn, trả | Có | Có | Không |
+| Tra cứu sách công khai (Web) | Có | Có | Có |
+| Đặt trước, lịch sử cá nhân | Chưa làm | Chưa làm | Chưa làm |

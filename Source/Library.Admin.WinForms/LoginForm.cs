@@ -9,7 +9,7 @@ public sealed class LoginForm : Form
     private readonly TextBox _password = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true };
     private readonly Label _message = new() { AutoSize = true, ForeColor = Color.Firebrick };
     private readonly Button _login = new() { Text = "Đăng nhập", AutoSize = true };
-    private readonly HttpClient _api = new() { BaseAddress = new Uri("http://localhost:5001/") };
+    private readonly HttpClient _api = new() { BaseAddress = ApiSettings.BaseUri };
 
     public string? Token { get; private set; }
     public string Username => _username.Text.Trim();

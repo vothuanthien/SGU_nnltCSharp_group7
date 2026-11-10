@@ -1,3 +1,4 @@
+using System.Data;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -11,13 +12,14 @@ public sealed class MainForm : Form
     private static readonly Entity[] Entities =
     [
         new("books", "Sách", ["title","isbn","publishedYear","description","genreId","publisherId","isActive"], ["Tên sách","ISBN","Năm XB","Mô tả","Mã thể loại","Mã NXB","Đang hoạt động"], ["text","text","int","text","int","int","bool"]),
+        new("copies", "Bản sao", ["copyCode","bookId","shelfLocation","acquiredAt","status"], ["Mã bản sao","Mã đầu sách","Vị trí kệ","Ngày nhập (yyyy-MM-dd)","Trạng thái"], ["text","int","text","date","text"]),
         new("readers", "Bạn đọc", ["readerCode","cardNumber","fullName","email","phone","registeredAt","expiryDate","status"], ["Mã bạn đọc","Số thẻ","Họ tên","Email","Điện thoại","Ngày đăng ký (yyyy-MM-dd)","Ngày hết hạn (yyyy-MM-dd)","Trạng thái"], ["text","text","text","text","text","date","date","text"]),
         new("genres", "Thể loại", ["name","isActive"], ["Tên thể loại","Đang hoạt động"], ["text","bool"]),
         new("authors", "Tác giả", ["fullName"], ["Họ tên tác giả"], ["text"]),
         new("publishers", "Nhà xuất bản", ["name"], ["Tên nhà xuất bản"], ["text"])
     ];
 
-    private readonly HttpClient _api = new() { BaseAddress = new Uri("http://localhost:5001/") };
+    private readonly HttpClient _api = new() { BaseAddress = ApiSettings.BaseUri };
     private readonly ComboBox _entity = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
     private readonly TextBox _search = new() { Width = 240, PlaceholderText = "Từ khóa tìm kiếm" };
     private readonly DataGridView _grid = new() { Dock = DockStyle.Fill, ReadOnly = true, AutoGenerateColumns = true, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, SelectionMode = DataGridViewSelectionMode.FullRowSelect, MultiSelect = false };
@@ -32,7 +34,8 @@ public sealed class MainForm : Form
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 56, Padding = new Padding(10), WrapContents = false };
         toolbar.Controls.AddRange([new Label { Text = "Quản lý:", AutoSize = true, Padding = new Padding(0, 8, 4, 0) }, _entity, _search,
             Button("Tìm kiếm", async () => await LoadRowsAsync()), Button("Tải lại", async () => await LoadRowsAsync()),
-            Button("Thêm", async () => await CreateAsync()), Button("Sửa", async () => await UpdateAsync()), Button("Xóa", async () => await DeleteAsync())]);
+            Button("Thêm", async () => await CreateAsync()), Button("Sửa", async () => await UpdateAsync()), Button("Xóa", async () => await DeleteAsync()),
+            Button("Tác giả của sách", async () => await EditAuthorsAsync()), Button("Mượn / Trả", () => { using var form = new CirculationForm(_api); form.ShowDialog(this); return Task.CompletedTask; })]);
         var statusBar = new StatusStrip(); statusBar.Items.Add(_status);
         Controls.Add(_grid); Controls.Add(toolbar); Controls.Add(statusBar);
         _entity.SelectedIndexChanged += async (_, _) => await LoadRowsAsync();
@@ -57,7 +60,7 @@ public sealed class MainForm : Form
             _status.Text = "Đang tải dữ liệu...";
             var url = $"api/admin/catalog/{Current.Key}?q={Uri.EscapeDataString(_search.Text.Trim())}";
             var rows = await _api.GetFromJsonAsync<List<Dictionary<string, JsonElement>>>(url) ?? [];
-            _grid.DataSource = rows.Select(row => row.ToDictionary(pair => pair.Key, pair => Display(pair.Value))).ToList();
+            _grid.DataSource = ToTable(rows);   // DataTable để lưới hiển thị đúng từng cột (không bind trực tiếp Dictionary)
             _status.Text = $"Đã tải {rows.Count} bản ghi";
         }
         catch (Exception ex) { _status.Text = "Không tải được dữ liệu"; MessageBox.Show(ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
@@ -103,9 +106,50 @@ public sealed class MainForm : Form
     private bool SelectedId(out int id, out Dictionary<string, object?> values)
     {
         id = 0; values = new(StringComparer.OrdinalIgnoreCase);
-        if (_grid.CurrentRow?.DataBoundItem is not Dictionary<string, object?> row || !row.TryGetValue("id", out var raw) || !int.TryParse(raw?.ToString(), out id))
+        if (_grid.CurrentRow?.DataBoundItem is not DataRowView view || !int.TryParse(view.Row["id"]?.ToString(), out id))
         { MessageBox.Show("Hãy chọn một bản ghi trong bảng trước.", "Chưa chọn dữ liệu", MessageBoxButtons.OK, MessageBoxIcon.Information); return false; }
-        values = row; return true;
+        foreach (DataColumn column in view.Row.Table.Columns)
+            values[column.ColumnName] = view.Row.IsNull(column) ? null : view.Row[column];
+        return true;
+    }
+
+    // Gán danh sách mã tác giả cho đầu sách đang chọn (bảng nối BookAuthors).
+    private async Task EditAuthorsAsync()
+    {
+        if (Current.Key != "books") { MessageBox.Show("Hãy chọn danh mục Sách rồi chọn một đầu sách.", "Gán tác giả", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (!SelectedId(out var id, out _)) return;
+        try
+        {
+            var current = await _api.GetFromJsonAsync<JsonElement>($"api/admin/catalog/books/{id}/authors");
+            var ids = current.GetProperty("authorIds").EnumerateArray().Select(x => x.GetInt32());
+            using var prompt = new PromptForm("Tác giả của sách", "Nhập các mã tác giả, cách nhau bằng dấu phẩy (xem danh mục Tác giả):", string.Join(",", ids));
+            if (prompt.ShowDialog(this) != DialogResult.OK) return;
+            var parsed = new List<int>();
+            foreach (var part in prompt.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!int.TryParse(part, out var authorId)) { MessageBox.Show($"'{part}' không phải mã tác giả hợp lệ.", "Kiểm tra dữ liệu", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+                parsed.Add(authorId);
+            }
+            await SendAsync(() => _api.PutAsJsonAsync($"api/admin/catalog/books/{id}/authors", new { authorIds = parsed }), "Đã cập nhật tác giả.");
+        }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "Lỗi kết nối", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    private static DataTable ToTable(List<Dictionary<string, JsonElement>> rows)
+    {
+        var table = new DataTable();
+        foreach (var key in rows.SelectMany(r => r.Keys).Distinct(StringComparer.OrdinalIgnoreCase)) table.Columns.Add(key, typeof(string));
+        foreach (var row in rows)
+        {
+            var item = table.NewRow();
+            foreach (var pair in row)
+            {
+                var text = Display(pair.Value)?.ToString();
+                item[pair.Key] = text is null ? DBNull.Value : text.EndsWith("T00:00:00") ? text[..^9] : text;
+            }
+            table.Rows.Add(item);
+        }
+        return table;
     }
 
     private static object? Display(JsonElement value) => value.ValueKind switch

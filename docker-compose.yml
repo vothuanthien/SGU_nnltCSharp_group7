@@ -1,0 +1,51 @@
+# Hai container: sqlserver (SQL Server) và api (Library.Api).
+# Docker Compose chỉ là công cụ điều phối, không phải container thứ ba.
+# Library.Web và Library.Admin.WinForms chạy trực tiếp trên Windows và gọi http://localhost:5001.
+#
+# Dùng:  copy .env.example .env  (sửa mật khẩu)  ->  docker compose up -d --build
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: library-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Hãy đặt MSSQL_SA_PASSWORD trong file .env}
+      MSSQL_PID: Developer
+    ports:
+      - "${SQL_HOST_PORT:-14333}:1433"      # để SSMS/Azure Data Studio trên Windows kết nối: localhost,14333
+    volumes:
+      - sqlserver-data:/var/opt/mssql        # dữ liệu còn nguyên khi dừng/tạo lại container
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q \"SELECT 1\" -b -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [library-net]
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: library-api
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      # Trong mạng Docker, SQL Server được gọi bằng tên service "sqlserver" (không dùng localhost).
+      ConnectionStrings__Library: "Server=sqlserver,1433;Database=LibraryManagement;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True"
+      Database__AutoInitialize: "true"
+      Database__ScriptsPath: /app/Database
+      Database__SeedAdminPassword: ${ADMIN_PASSWORD:-}
+    ports:
+      - "${API_HOST_PORT:-5001}:8080"        # Web MVC và WinForms trên Windows gọi http://localhost:5001
+    networks: [library-net]
+    restart: on-failure
+
+volumes:
+  sqlserver-data:
+
+networks:
+  library-net:

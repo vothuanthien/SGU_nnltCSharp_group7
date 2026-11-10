@@ -8,9 +8,9 @@
 
 - `POST /api/auth/login`: kiểm tra username/password từ bảng `Accounts`.
 - Mật khẩu được băm/kiểm tra bằng PBKDF2-SHA256; không lưu mật khẩu thuần.
-- API phát JWT có username và role.
+- API phát **bearer token phiên ngẫu nhiên** (lưu trong bộ nhớ API, hết hạn sau 8 giờ). Đây không phải JWT.
 - API CRUD đầu sách, mượn và trả chỉ cho phép role `Admin` hoặc `Librarian`.
-- Tên thủ thư ghi vào `Loans` và `Returns` lấy từ claim trong JWT, không lấy từ dữ liệu client gửi lên.
+- Tên thủ thư ghi vào `Loans` và `Returns` lấy từ danh tính của phiên đã xác thực, không lấy từ dữ liệu client gửi lên (đã sửa trong đợt cập nhật sau; bản trước chưa bảo vệ các API này).
 
 ### CRUD đầu sách trên Desktop
 
@@ -48,14 +48,14 @@ Content-Type: application/json
 Danh sách đầu sách (thay `TOKEN` bằng `accessToken` nhận được):
 
 ```http
-GET http://localhost:5001/api/admin/books
+GET http://localhost:5001/api/admin/catalog/books
 Authorization: Bearer TOKEN
 ```
 
 Thêm sách:
 
 ```http
-POST http://localhost:5001/api/admin/books
+POST http://localhost:5001/api/admin/catalog/books
 Authorization: Bearer TOKEN
 Content-Type: application/json
 
@@ -87,6 +87,6 @@ Content-Type: application/json
 
 - Chưa có giao diện đổi mật khẩu/tạo tài khoản nhân viên.
 - Chưa có màn hình quản lý tác giả/thể loại/nhà xuất bản; khi thêm sách, nhập ID đã có trong SQL Server.
-- Chưa có CRUD bản sao, bạn đọc, đặt trước, lịch sử cá nhân, thanh toán phạt, dashboard, báo cáo hoặc sao lưu.
-- Khóa JWT trong `appsettings.Development.json` là khóa demo. Khi triển khai phải đặt khóa riêng qua User Secrets/biến môi trường, bật HTTPS và không commit bí mật lên Git.
-- Phần bổ sung chưa được build/chạy xác nhận trong môi trường tạo gói do không có .NET SDK tại đây. Cần chạy checklist ở trên trong Visual Studio 2022 hoặc trên máy đã cài .NET 8 SDK.
+- CRUD bản sao và bạn đọc đã có ở đợt cập nhật sau; chưa có đặt trước, lịch sử cá nhân, thanh toán phạt, dashboard, báo cáo hoặc sao lưu.
+- Phiên lưu trong bộ nhớ nên API khởi động lại thì phải đăng nhập lại. Khi triển khai thật phải bật HTTPS và không commit bí mật lên Git.
+- Phần bổ sung chưa được chạy tích hợp với SQL Server. Cần chạy checklist ở trên trong Visual Studio 2022 hoặc trên máy đã cài .NET 8 SDK.

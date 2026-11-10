@@ -1,1 +1,13 @@
-<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup><ItemGroup><ProjectReference Include="../../Source/Library.Domain/Library.Domain.csproj" /></ItemGroup></Project>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Source/Library.Domain/Library.Domain.csproj" />
+    <!-- Dùng lại mã băm mật khẩu và kho phiên của API mà không cần tham chiếu cả project API (tránh kéo EF Core/SqlClient). -->
+    <Compile Include="../../Source/Library.Api/Security/AdminSessionStore.cs" Link="Security/AdminSessionStore.cs" />
+  </ItemGroup>
+</Project>
