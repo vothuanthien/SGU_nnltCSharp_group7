@@ -1,31 +1,118 @@
 @model IEnumerable<Library.Web.Controllers.BookVm>
-@{ ViewData["Title"] = "Tra cứu sách"; var genres = ViewBag.Genres as List<Library.Web.Controllers.GenreVm> ?? []; }
-<section class="hero p-4 p-md-5 rounded-4 mb-4">
-    <p class="eyebrow">THƯ VIỆN SÀI GÒN · KHÔNG GIAN TRI THỨC</p>
-    <h1>Khám phá cuốn sách tiếp theo của bạn</h1>
-    <p>Tìm theo tên sách, tác giả hoặc ISBN; chọn thể loại để thu hẹp kết quả.</p>
-    <!-- Form GET giúp bạn đọc chia sẻ hoặc lưu lại đường dẫn tìm kiếm. -->
-    <form method="get" asp-action="Index" class="row g-2">
-        <div class="col-md"><input name="q" value="@ViewBag.Query" class="form-control form-control-lg" placeholder="Tên sách, tác giả, ISBN" aria-label="Từ khóa tìm sách" /></div>
-        <div class="col-md-4"><select name="genreId" class="form-select form-select-lg"><option value="">Tất cả thể loại</option>@foreach (var genre in genres) { <option value="@genre.id" selected="@(ViewBag.GenreId == genre.id)">@genre.name</option> }</select></div>
-        <div class="col-md-auto"><button class="btn btn-primary btn-lg w-100">Tìm sách</button></div>
-    </form>
-</section>
-@if (ViewBag.ApiError is not null) { <div class="alert alert-warning" role="status">@ViewBag.ApiError</div> }
-<div class="d-flex justify-content-between align-items-center mb-3"><h2 class="h4 mb-0">Danh mục sách</h2><span class="text-secondary">@ViewBag.Total kết quả · trang @ViewBag.Page</span></div>
-@if (!Model.Any() && ViewBag.ApiError is null) { <p class="alert alert-light">Không tìm thấy sách phù hợp. Thử từ khóa hoặc thể loại khác.</p> }
-<div class="row g-3">
-@foreach (var book in Model) {
-    <div class="col-sm-6 col-lg-4"><article class="card h-100 shadow-sm"><div class="card-body d-flex flex-column">
-        <span class="badge text-bg-light align-self-start">@book.genre</span><h3 class="h5 mt-3">@book.title</h3>
-        <p class="text-secondary mb-1">@(book.authors.Count == 0 ? "Chưa cập nhật tác giả" : string.Join(", ", book.authors))</p>
-        <p class="text-secondary">ISBN: @(book.isbn ?? "Chưa cập nhật") · @(book.year?.ToString() ?? "Năm chưa rõ")</p>
-        <p class="mb-3">Bản sao sẵn có: <strong>@book.available</strong></p>
-        <a class="btn btn-outline-primary mt-auto" asp-action="Details" asp-route-id="@book.id">Xem chi tiết</a>
-    </div></article></div>
+@{
+    ViewData["Title"] = "Tra cứu sách";
+    var genres = ViewBag.Genres as List<Library.Web.Controllers.GenreVm> ?? [];
+    var query = ViewBag.Query as string ?? "";
+    var selectedSort = ViewBag.Sort as string ?? "title";
+    var availableOnly = ViewBag.AvailableOnly is bool available && available;
+    var pageNumber = ViewBag.Page is int currentPage ? currentPage : 1;
+    var total = ViewBag.Total is int resultCount ? resultCount : 0;
+    var coverIndex = 0;
 }
-</div>
-<!-- Giữ nguyên bộ lọc khi chuyển trang để kết quả duyệt danh mục nhất quán. -->
-@if (ViewBag.Total is int total && total > 12) { <nav class="mt-4" aria-label="Phân trang"><ul class="pagination justify-content-center">
-    @for (var p = 1; p <= Math.Ceiling(total / 12.0); p++) { <li class="page-item @(p == (int)ViewBag.Page ? "active" : "")"><a class="page-link" asp-action="Index" asp-route-q="@ViewBag.Query" asp-route-genreId="@ViewBag.GenreId" asp-route-page="@p">@p</a></li> }
-</ul></nav> }
+
+<section class="hero-library rounded-4 mb-4">
+    <div class="hero-copy">
+        <span class="eyebrow"><span class="eyebrow-dot"></span> THƯ VIỆN SÀI GÒN · KHÔNG GIAN TRI THỨC</span>
+        <h1>Mỗi cuốn sách mở ra <span>một hành trình mới.</span></h1>
+        <p class="hero-lead">Khám phá bộ sưu tập, tìm nhanh cuốn sách bạn cần và kiểm tra tình trạng bản sao trước khi ghé thư viện.</p>
+        <div class="hero-benefits">
+            <span>⌕ Tra cứu nhanh</span><span>▤ Nhiều chủ đề</span><span>✓ Theo dõi sách còn</span>
+        </div>
+    </div>
+
+    <div class="search-panel">
+        <div class="search-panel-heading"><span class="search-icon">⌕</span><div><strong>Tìm trong danh mục</strong><small>Tên sách, tác giả hoặc ISBN</small></div></div>
+        <form method="get" asp-action="Index" class="catalog-search">
+            <label class="visually-hidden" for="book-query">Từ khóa tìm kiếm</label>
+            <input id="book-query" name="q" value="@query" class="form-control" placeholder="Ví dụ: lập trình, Nguyễn Nhật Ánh..." />
+            <label class="visually-hidden" for="genre-filter">Thể loại</label>
+            <select id="genre-filter" name="genreId" class="form-select">
+                <option value="">Tất cả thể loại</option>
+                @foreach (var genre in genres)
+                {
+                    <option value="@genre.id" selected="@(ViewBag.GenreId == genre.id)">@genre.name</option>
+                }
+            </select>
+            <label class="visually-hidden" for="sort-filter">Sắp xếp</label>
+            <select id="sort-filter" name="sort" class="form-select">
+                <option value="title" selected="@(selectedSort == "title")">Tên sách A–Z</option>
+                <option value="newest" selected="@(selectedSort == "newest")">Năm xuất bản mới</option>
+                <option value="oldest" selected="@(selectedSort == "oldest")">Năm xuất bản cũ</option>
+                <option value="available" selected="@(selectedSort == "available")">Còn nhiều bản sao</option>
+            </select>
+            <label class="availability-toggle"><input type="checkbox" name="availableOnly" value="true" checked="@availableOnly" /><span class="toggle-mark"></span> Chỉ sách đang có</label>
+            <div class="search-actions"><button class="btn btn-primary">Tìm sách</button><a asp-action="Index" class="btn btn-link">Xóa bộ lọc</a></div>
+        </form>
+    </div>
+
+    <div class="hero-metrics" aria-label="Tóm tắt kết quả">
+        <div><strong>@total</strong><span>kết quả phù hợp</span></div>
+        <div><strong>@genres.Count</strong><span>thể loại</span></div>
+        <div><strong>@Model.Count(x => x.available > 0)</strong><span>sách còn trong trang</span></div>
+    </div>
+</section>
+
+@if (ViewBag.ApiError is not null)
+{
+    <div class="alert alert-warning" role="status">@ViewBag.ApiError</div>
+}
+
+<section class="category-section mb-5" aria-labelledby="category-heading">
+    <div class="section-heading"><div><span class="section-kicker">CHỌN THEO SỞ THÍCH</span><h2 id="category-heading">Khám phá thể loại</h2></div><span class="section-note">@genres.Count chủ đề đang có</span></div>
+    <div class="category-list">
+        @foreach (var genre in genres)
+        {
+            <a class="category-chip" asp-action="Index" asp-route-genreId="@genre.id"><span class="category-chip-icon">▤</span>@genre.name<span class="category-arrow">→</span></a>
+        }
+    </div>
+</section>
+
+<section aria-labelledby="catalog-heading">
+    <div class="section-heading catalog-heading">
+        <div><span class="section-kicker">BỘ SƯU TẬP</span><h2 id="catalog-heading">@(string.IsNullOrWhiteSpace(query) ? "Sách trong thư viện" : $"Kết quả cho “{query}”")</h2></div>
+        <span class="section-note">Trang @pageNumber · @total đầu sách</span>
+    </div>
+
+    @if (!Model.Any() && ViewBag.ApiError is null)
+    {
+        <div class="empty-state"><span>⌕</span><h3>Chưa tìm thấy cuốn sách phù hợp</h3><p>Thử từ khóa khác hoặc bỏ bớt bộ lọc để xem thêm sách.</p><a asp-action="Index" class="btn btn-outline-primary">Xem toàn bộ danh mục</a></div>
+    }
+    else
+    {
+        <div class="row g-4 book-grid">
+            @foreach (var book in Model)
+            {
+                var coverClass = $"cover-{coverIndex++ % 6 + 1}";
+                <div class="col-sm-6 col-lg-4 col-xl-3">
+                    <article class="book-card h-100">
+                        <a class="book-cover @coverClass" asp-action="Details" asp-route-id="@book.id" aria-label="Xem chi tiết @book.title">
+                            <span class="cover-library">THƯ VIỆN SÀI GÒN</span>
+                            <span class="cover-category">@book.genre</span>
+                            <strong>@book.title</strong>
+                            <span class="cover-author">@(book.authors.FirstOrDefault() ?? "Tác giả đang cập nhật")</span>
+                            <span class="cover-emblem">✳</span>
+                        </a>
+                        <div class="book-card-body">
+                            <div class="book-meta-top"><span class="genre-label">@book.genre</span><span class="availability @(book.available > 0 ? "in-stock" : "out-stock")">@(book.available > 0 ? "Còn sách" : "Đang được mượn")</span></div>
+                            <h3><a asp-action="Details" asp-route-id="@book.id">@book.title</a></h3>
+                            <p class="book-author">@(book.authors.Count == 0 ? "Chưa cập nhật tác giả" : string.Join(", ", book.authors))</p>
+                            <div class="book-card-footer"><span>@(book.year?.ToString() ?? "Chưa rõ năm")</span><span><strong>@book.available</strong> bản có sẵn</span></div>
+                        </div>
+                    </article>
+                </div>
+            }
+        </div>
+    }
+
+    @if (total > 12)
+    {
+        <nav class="mt-5" aria-label="Phân trang danh mục"><ul class="pagination justify-content-center">
+            @for (var p = 1; p <= Math.Ceiling(total / 12.0); p++)
+            {
+                <li class="page-item @(p == pageNumber ? "active" : "")"><a class="page-link" asp-action="Index" asp-route-q="@query" asp-route-genreId="@ViewBag.GenreId" asp-route-availableOnly="@availableOnly" asp-route-sort="@selectedSort" asp-route-page="@p">@p</a></li>
+            }
+        </ul></nav>
+    }
+</section>
+
+<section class="visit-banner mt-5 rounded-4"><div><span class="section-kicker">BẮT ĐẦU TỪ MỘT TRANG SÁCH</span><h2>Chưa biết đọc gì tiếp theo?</h2><p>Duyệt bộ sưu tập theo chủ đề hoặc xem những cuốn sách đang sẵn có tại thư viện.</p></div><a asp-action="Index" asp-route-sort="available" class="btn btn-light">Xem sách còn bản sao <span aria-hidden="true">→</span></a></section>

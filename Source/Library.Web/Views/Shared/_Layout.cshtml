@@ -9,36 +9,46 @@
     <link rel="stylesheet" href="~/Library.Web.styles.css" asp-append-version="true" />
 </head>
 <body>
-    <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
-            <div class="container-fluid">
-                <a class="navbar-brand fw-bold" asp-area="" asp-controller="Home" asp-action="Index">📚 Thư viện Sài Gòn</a>
+    <header class="site-header">
+        <div class="site-topbar"><div class="container d-flex justify-content-between"><span>Không gian đọc và tra cứu dành cho bạn</span><span>Danh mục sách · Thư viện Sài Gòn</span></div></div>
+        <nav class="navbar navbar-expand-lg navbar-light site-nav">
+            <div class="container">
+                <a class="navbar-brand fw-bold" asp-area="" asp-controller="Home" asp-action="Index"><span class="brand-mark">TV</span><span>Thư viện <b>Sài Gòn</b></span></a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
                         aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
                 </button>
-                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
+                <div class="navbar-collapse collapse">
                     <ul class="navbar-nav flex-grow-1">
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Danh mục sách</a>
+                            <a class="nav-link" asp-area="" asp-controller="Home" asp-action="Index">Khám phá sách</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Rules">Hướng dẫn bạn đọc</a>
+                            <a class="nav-link" asp-area="" asp-controller="Home" asp-action="Index" asp-route-sort="newest">Sách mới</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" asp-area="" asp-controller="Home" asp-action="Index" asp-route-availableOnly="true" asp-route-sort="available">Đang có sẵn</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" asp-area="" asp-controller="Home" asp-action="Rules">Hướng dẫn bạn đọc</a>
                         </li>
                     </ul>
+                    <a class="nav-search-link" asp-area="" asp-controller="Home" asp-action="Index">⌕ <span>Tìm sách</span></a>
                 </div>
             </div>
         </nav>
     </header>
-    <div class="container">
+    <div class="container site-content">
         <main role="main" class="pb-3">
             @RenderBody()
         </main>
     </div>
 
-    <footer class="border-top footer text-muted">
-        <div class="container">
-            &copy; 2026 - Hệ thống quản lý thư viện - <a asp-area="" asp-controller="Home" asp-action="Rules">Hướng dẫn mượn và trả</a>
+    <footer class="site-footer">
+        <div class="container footer-inner">
+            <div><a class="footer-brand" asp-controller="Home" asp-action="Index"><span class="brand-mark">TV</span> Thư viện Sài Gòn</a><p>Tra cứu bộ sưu tập và tình trạng sách trong thư viện.</p></div>
+            <div class="footer-links"><a asp-controller="Home" asp-action="Index">Danh mục sách</a><a asp-controller="Home" asp-action="Rules">Hướng dẫn mượn và trả</a></div>
+            <div class="footer-copy">&copy; 2026 Thư viện Sài Gòn<br /><span>Hệ thống tra cứu thư viện</span></div>
         </div>
     </footer>
     <script src="~/lib/jquery/dist/jquery.min.js"></script>

@@ -1,8 +1,39 @@
 @model Library.Web.Controllers.BookDetailsVm
-@{ ViewData["Title"] = Model.title; }
-<a asp-action="Index" class="btn btn-link px-0">← Quay lại danh mục</a>
-<article class="book-detail p-4 p-md-5 rounded-4"><span class="badge text-bg-light">@Model.genre</span><h1 class="mt-3">@Model.title</h1>
-    <p class="lead">@(Model.authors.Count == 0 ? "Chưa cập nhật tác giả" : string.Join(", ", Model.authors))</p>
-    <dl class="row mt-4"><dt class="col-sm-3">ISBN</dt><dd class="col-sm-9">@(Model.isbn ?? "Chưa cập nhật")</dd><dt class="col-sm-3">Năm xuất bản</dt><dd class="col-sm-9">@(Model.year?.ToString() ?? "Chưa cập nhật")</dd><dt class="col-sm-3">Nhà xuất bản</dt><dd class="col-sm-9">@Model.publisher</dd><dt class="col-sm-3">Bản sao sẵn có</dt><dd class="col-sm-9">@Model.available</dd></dl>
-    <h2 class="h5 mt-4">Giới thiệu</h2><p class="mb-0">@(string.IsNullOrWhiteSpace(Model.description) ? "Thư viện chưa cập nhật phần giới thiệu cho sách này." : Model.description)</p>
+@{
+    ViewData["Title"] = Model.title;
+    var coverClass = $"cover-{Model.id % 6 + 1}";
+}
+
+<a asp-action="Index" class="back-link">← <span>Quay lại danh mục sách</span></a>
+<article class="book-detail p-3 p-md-5 rounded-4 mt-3">
+    <div class="book-cover detail-cover @coverClass" aria-label="Bìa minh họa @Model.title">
+        <span class="cover-library">THƯ VIỆN SÀI GÒN</span>
+        <span class="cover-category">@Model.genre</span>
+        <strong>@Model.title</strong>
+        <span class="cover-author">@(Model.authors.FirstOrDefault() ?? "Tác giả đang cập nhật")</span>
+        <span class="cover-emblem">✳</span>
+    </div>
+    <div class="detail-content">
+        <span class="section-kicker">CHI TIẾT ĐẦU SÁCH</span>
+        <h1 class="mt-3">@Model.title</h1>
+        <p class="detail-author">@(Model.authors.Count == 0 ? "Chưa cập nhật tác giả" : string.Join(", ", Model.authors))</p>
+
+        <div class="detail-data">
+            <div><dt>Thể loại</dt><dd>@Model.genre</dd></div>
+            <div><dt>Năm xuất bản</dt><dd>@(Model.year?.ToString() ?? "Chưa cập nhật")</dd></div>
+            <div><dt>ISBN</dt><dd>@(Model.isbn ?? "Chưa cập nhật")</dd></div>
+            <div><dt>Nhà xuất bản</dt><dd>@Model.publisher</dd></div>
+        </div>
+
+        <div class="availability-panel @(Model.available > 0 ? "" : "empty")">
+            <span aria-hidden="true">@(Model.available > 0 ? "✓" : "–")</span>
+            <div><strong>@(Model.available > 0 ? $"{Model.available} bản sao đang sẵn có" : "Hiện chưa có bản sao sẵn sàng")</strong><span>Tình trạng được cập nhật từ danh mục thư viện.</span></div>
+        </div>
+
+        <section class="description-block">
+            <h2>Giới thiệu sách</h2>
+            <p>@(string.IsNullOrWhiteSpace(Model.description) ? "Thư viện chưa cập nhật phần giới thiệu cho sách này." : Model.description)</p>
+        </section>
+        <a asp-action="Index" class="btn btn-outline-success mt-2">Tiếp tục khám phá sách <span aria-hidden="true">→</span></a>
+    </div>
 </article>

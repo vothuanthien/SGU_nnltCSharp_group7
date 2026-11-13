@@ -16,10 +16,10 @@ public sealed class LoginForm : Form
 
     public LoginForm()
     {
-        Text = "Đăng nhập quản trị thư viện"; Width = 430; Height = 270;
+        Text = "Đăng nhập quản trị thư viện"; Width = 430; Height = 300;
         StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false; MinimizeBox = false;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24), ColumnCount = 2, RowCount = 5 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24), ColumnCount = 2, RowCount = 6 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105)); layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.Controls.Add(new Label { Text = "TÀI KHOẢN QUẢN TRỊ", Font = new Font("Segoe UI", 14, FontStyle.Bold), AutoSize = true }, 0, 0);
         layout.SetColumnSpan(layout.GetControlFromPosition(0, 0)!, 2);
@@ -27,6 +27,8 @@ public sealed class LoginForm : Form
         layout.Controls.Add(new Label { Text = "Mật khẩu", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 2); layout.Controls.Add(_password, 1, 2);
         layout.Controls.Add(_message, 0, 3); layout.SetColumnSpan(_message, 2);
         layout.Controls.Add(_login, 1, 4); _login.Anchor = AnchorStyles.Right;
+        var demoHint = new Label { Text = "Mật khẩu demo: Admin@12345 (tài khoản: admin)", AutoSize = true, ForeColor = Color.DimGray };
+        layout.Controls.Add(demoHint, 0, 5); layout.SetColumnSpan(demoHint, 2);
         Controls.Add(layout); AcceptButton = _login;
         _login.Click += async (_, _) => await SignInAsync();
     }
