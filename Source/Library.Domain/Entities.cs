@@ -119,3 +119,25 @@ public sealed class BookAuthor
     /// <summary>Gets or sets the associated author.</summary>
     public Author Author { get; set; } = null!;
 }
+
+/// <summary>Represents a hold/reservation placed on a book title by a reader.</summary>
+public sealed class Reservation
+{
+    /// <summary>Gets or sets the reservation identifier.</summary>
+    public int ReservationId { get; set; }
+
+    /// <summary>Gets or sets the reader identifier.</summary>
+    public int ReaderId { get; set; }
+
+    /// <summary>Gets or sets the book title identifier.</summary>
+    public int BookId { get; set; }
+
+    /// <summary>Gets or sets the timestamp when the reservation was requested.</summary>
+    public DateTime RequestedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Gets or sets the reservation status (Pending, Fulfilled, Cancelled, Expired).</summary>
+    public string Status { get; set; } = "Pending";
+
+    /// <summary>Gets or sets the hold expiry deadline.</summary>
+    public DateTime? HoldUntil { get; set; }
+}

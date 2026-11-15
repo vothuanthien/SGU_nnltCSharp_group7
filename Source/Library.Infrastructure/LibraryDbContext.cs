@@ -26,10 +26,14 @@ public sealed class LibraryDbContext(DbContextOptions<LibraryDbContext> options)
     /// <summary>Gets the title-author links set.</summary>
     public DbSet<BookAuthor> BookAuthors => Set<BookAuthor>();
 
+    /// <summary>Gets the book reservations set.</summary>
+    public DbSet<Reservation> Reservations => Set<Reservation>();
+
     /// <summary>Configures table names, keys, indexes, and entity relationships.</summary>
     /// <param name="modelBuilder">The builder used to configure the EF model.</param>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Reservation>().ToTable("Reservations").HasKey(r => r.ReservationId);
         modelBuilder.Entity<BookTitle>().ToTable("BookTitles").HasKey(book => book.BookId);
         modelBuilder.Entity<BookTitle>().Property(book => book.Title).HasMaxLength(300).IsRequired();
         modelBuilder.Entity<BookTitle>().Property(book => book.ISBN).HasMaxLength(20);

@@ -9,6 +9,6 @@ internal static class Program
         // Chỉ mở màn hình quản trị sau khi API xác thực tài khoản và cấp phiên hợp lệ.
         using var login = new LoginForm();
         if (login.ShowDialog() == DialogResult.OK && login.Token is not null)
-            Application.Run(new MainForm(login.Token, login.Username));
+            Application.Run(new MainForm(login.Token, login.Username, login.Role ?? "Librarian"));
     }
 }

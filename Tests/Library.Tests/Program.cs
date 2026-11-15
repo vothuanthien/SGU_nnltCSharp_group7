@@ -47,6 +47,12 @@ Check("token lạ bị từ chối", !store.TryGet("token-gia", out _));
 Check("token không chứa username/role", !token.Contains("thuthu1") && !token.Contains("Librarian"));
 store.Revoke(token);
 Check("đăng xuất hủy phiên", !store.TryGet(token, out _));
+var (lockedToken, _) = store.Create("thuthu-bi-khoa", "Librarian");
+var (activeToken, _) = store.Create("thuthu-hoat-dong", "Librarian");
+store.RevokeUserSessions("THUTHU-BI-KHOA");
+Check("khóa tài khoản thu hồi các phiên đang tồn tại", !store.TryGet(lockedToken, out _));
+Check("thu hồi phiên không ảnh hưởng tài khoản khác", store.TryGet(activeToken, out _));
+store.Revoke(activeToken);
 
 Console.WriteLine($"Passed: {passed} kiểm tra.");
-Console.WriteLine("Lưu ý: chưa có kiểm thử tích hợp với SQL Server/API; xem Documents/KiemThu.md.");
+Console.WriteLine("Lưu ý: chương trình kiểm thử console không thay thế kiểm thử tích hợp SQL Server/API.");

@@ -23,7 +23,7 @@ Trong PowerShell, chạy:
 SqlLocalDB start MSSQLLocalDB
 ```
 
-Nếu cơ sở dữ liệu `LibraryManagement` chưa tồn tại, mở SQL Server Management Studio, kết nối tới `(localdb)\MSSQLLocalDB`, rồi chạy lần lượt các script `Database/01_CreateDatabase.sql` đến `Database/04_SeedData.sql`, sau đó chạy `Database/06_CreateDemoAdmin.sql`. Script `05_TestQueries.sql` chỉ dùng để xem các truy vấn kiểm tra.
+Nếu cơ sở dữ liệu `LibraryManagement` chưa tồn tại, mở SQL Server Management Studio, kết nối tới `(localdb)\MSSQLLocalDB`, rồi chạy lần lượt các script `Database/01_CreateDatabase.sql` đến `Database/04_SeedData.sql`. Sau đó chạy `Database/07_ProfessionalSkills_Update.sql` để thêm dữ liệu hồ sơ tài khoản và ràng buộc đặt trước, rồi chạy `Database/06_CreateDemoAdmin.sql`. Script `05_TestQueries.sql` chỉ dùng để xem các truy vấn kiểm tra. Script cập nhật có thể chạy lại an toàn; nếu phát hiện yêu cầu đặt trước Pending trùng, script dừng để dữ liệu được rà soát trước khi tạo chỉ mục.
 
 ## 4. Chạy API
 

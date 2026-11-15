@@ -30,6 +30,27 @@
             <div><strong>@(Model.available > 0 ? $"{Model.available} bản sao đang sẵn có" : "Hiện chưa có bản sao sẵn sàng")</strong><span>Tình trạng được cập nhật từ danh mục thư viện.</span></div>
         </div>
 
+        @if (TempData["ReservationSuccess"] is string success)
+        {
+            <div class="alert alert-success mt-3" role="status">@success</div>
+        }
+        @if (TempData["ReservationError"] is string error)
+        {
+            <div class="alert alert-warning mt-3" role="alert">@error</div>
+        }
+        @if (Model.available == 0)
+        {
+            <form asp-action="Reserve" asp-route-id="@Model.id" method="post" class="reservation-form mt-3">
+                @Html.AntiForgeryToken()
+                <label for="reservation-card" class="form-label">Đặt trước bằng số thẻ thư viện</label>
+                <div class="input-group">
+                    <input id="reservation-card" name="cardNumber" class="form-control" maxlength="30" autocomplete="off" required placeholder="Nhập số thẻ của bạn" />
+                    <button type="submit" class="btn btn-outline-primary">Đặt trước</button>
+                </div>
+                <small class="form-text">Thẻ phải đang hoạt động và chưa hết hạn. Mỗi thẻ chỉ có một yêu cầu chờ cho đầu sách này.</small>
+            </form>
+        }
+
         <section class="description-block">
             <h2>Giới thiệu sách</h2>
             <p>@(string.IsNullOrWhiteSpace(Model.description) ? "Thư viện chưa cập nhật phần giới thiệu cho sách này." : Model.description)</p>

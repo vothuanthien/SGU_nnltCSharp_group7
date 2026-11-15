@@ -7,7 +7,7 @@ namespace Library.Api.Data;
 /// <summary>Đọc cấu hình mượn/phạt từ bảng Settings để mọi API dùng chung một LoanPolicy của lớp Domain.</summary>
 public static class LoanPolicyStore
 {
-    public static async Task<LoanPolicy> LoadAsync(SqlConnection connection, SqlTransaction transaction)
+    public static async Task<LoanPolicy> LoadAsync(SqlConnection connection, SqlTransaction? transaction = null)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         await using (var command = new SqlCommand(

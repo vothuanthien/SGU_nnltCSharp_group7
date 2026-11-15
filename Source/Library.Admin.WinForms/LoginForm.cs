@@ -12,6 +12,7 @@ public sealed class LoginForm : Form
     private readonly HttpClient _api = new() { BaseAddress = ApiSettings.BaseUri };
 
     public string? Token { get; private set; }
+    public string? Role { get; private set; }
     public string Username => _username.Text.Trim();
 
     public LoginForm()
@@ -43,7 +44,7 @@ public sealed class LoginForm : Form
             if (!response.IsSuccessStatusCode) { _message.Text = "Sai tài khoản/mật khẩu hoặc tài khoản chưa có quyền quản trị."; return; }
             var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
             if (result is null || string.IsNullOrWhiteSpace(result.Token)) { _message.Text = "API không trả về phiên đăng nhập."; return; }
-            Token = result.Token; DialogResult = DialogResult.OK; Close();
+            Token = result.Token; Role = result.Role; DialogResult = DialogResult.OK; Close();
         }
         catch (Exception ex) { _message.Text = "Không kết nối được API: " + ex.Message; }
         finally { _login.Enabled = true; }

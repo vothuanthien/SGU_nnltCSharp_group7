@@ -33,7 +33,7 @@ flowchart LR
 ## Kết nối API ↔ SQL Server
 - Connection string trong container: `Server=sqlserver,1433;...` (tên service, **không** dùng `localhost`).
 - API chờ SQL Server sẵn sàng (thử lại tối đa 30 lần, mỗi 2 giây) trước khi khởi tạo; ngoài ra compose có healthcheck cho SQL Server.
-- Lần chạy đầu, API tự chạy `Database/01..04` (chỉ khi database chưa có bảng `Settings`) và tạo tài khoản `admin` với mật khẩu lấy từ `ADMIN_PASSWORD`. Script `05` (truy vấn thử) và `06` (admin demo cho máy local) không chạy trong Docker.
+- Lần chạy đầu, API tự chạy `Database/01..04` (chỉ khi database chưa có bảng `Settings`), sau đó áp dụng migration idempotent `Database/07_ProfessionalSkills_Update.sql` cho cả database mới lẫn volume đã tồn tại. API tạo tài khoản `admin` với mật khẩu lấy từ `ADMIN_PASSWORD`. Script `05` (truy vấn thử) và `06` (admin demo cho máy local) không chạy trong Docker.
 
 ## Chạy hệ thống
 ```powershell

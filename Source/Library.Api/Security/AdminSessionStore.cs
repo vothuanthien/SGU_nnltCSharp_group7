@@ -36,6 +36,16 @@ public sealed class AdminSessionStore
     /// <summary>Hủy phiên khi người dùng đăng xuất.</summary>
     public void Revoke(string token) => _sessions.TryRemove(token, out _);
 
+    /// <summary>Hủy mọi phiên của tài khoản sau khi tài khoản bị khóa hoặc đổi mật khẩu.</summary>
+    public void RevokeUserSessions(string username)
+    {
+        foreach (var entry in _sessions)
+        {
+            if (entry.Value.Username.Equals(username, StringComparison.OrdinalIgnoreCase))
+                _sessions.TryRemove(entry.Key, out _);
+        }
+    }
+
     private static string Base64Url(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

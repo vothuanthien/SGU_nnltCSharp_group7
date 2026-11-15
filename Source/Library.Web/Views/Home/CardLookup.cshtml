@@ -1,0 +1,68 @@
+@model Library.Web.Controllers.CardLookupPageVm
+@{
+    ViewData["Title"] = "Tra cứu thẻ thư viện";
+}
+
+<section class="reader-lookup-page">
+    <span class="section-kicker">DỊCH VỤ BẠN ĐỌC</span>
+    <h1 class="mt-2">Tra cứu thẻ thư viện</h1>
+    <p class="text-muted">Nhập số thẻ để xem các sách đang mượn, hạn trả và tiền phạt dự kiến.</p>
+
+    <form asp-action="CardLookup" method="post" class="reader-lookup-form">
+        @Html.AntiForgeryToken()
+        <label asp-for="CardNumber" class="form-label">Số thẻ thư viện</label>
+        <div class="input-group">
+            <input asp-for="CardNumber" class="form-control" maxlength="30" autocomplete="off" required />
+            <button class="btn btn-primary" type="submit">Tra cứu</button>
+        </div>
+    </form>
+
+    @if (!string.IsNullOrWhiteSpace(Model.Error))
+    {
+        <div class="alert alert-warning mt-4" role="alert">@Model.Error</div>
+    }
+
+    @if (Model.Result is not null)
+    {
+        var reader = Model.Result;
+        <section class="reader-lookup-result mt-4" aria-live="polite">
+            <div class="reader-summary">
+                <div><span>Số thẻ</span><strong>@reader.cardNumber</strong></div>
+                <div><span>Họ tên</span><strong>@reader.fullName</strong></div>
+                <div><span>Trạng thái</span><strong>@(reader.status == "Active" && !reader.isExpired ? "Đang hoạt động" : reader.isExpired ? "Đã hết hạn" : "Bị khóa")</strong></div>
+                <div><span>Hạn thẻ</span><strong>@reader.expiryDate</strong></div>
+            </div>
+
+            <div class="section-heading mt-4">
+                <div><span class="section-kicker">ĐANG MƯỢN</span><h2>Sách chưa trả</h2></div>
+                <span class="section-note">@reader.openLoansCount / @reader.maxLoans cuốn</span>
+            </div>
+
+            @if (reader.borrowedBooks.Count == 0)
+            {
+                <div class="empty-state compact-empty"><h3>Bạn chưa có sách đang mượn</h3></div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle reader-loans-table">
+                        <thead><tr><th>Tên sách</th><th>Mã bản sao</th><th>Ngày mượn</th><th>Hạn trả</th><th>Tình trạng</th><th>Phạt dự kiến</th></tr></thead>
+                        <tbody>
+                        @foreach (var loan in reader.borrowedBooks)
+                        {
+                            <tr>
+                                <td>@loan.title</td>
+                                <td>@loan.copyCode</td>
+                                <td>@loan.loanDate</td>
+                                <td>@loan.dueDate</td>
+                                <td>@(loan.isOverdue ? $"Quá hạn {loan.overdueDays} ngày" : "Trong hạn")</td>
+                                <td>@loan.fineExpected.ToString("N0") đ</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+</section>

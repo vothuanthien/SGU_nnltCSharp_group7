@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace Library.Web.Controllers;
 
@@ -49,6 +50,97 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
         }
         catch (Exception ex) { log.LogWarning(ex, "Không thể tải chi tiết sách {BookId}", id); return NotFound(); }
     }
+
+    /// <summary>Hiển thị biểu mẫu tra cứu thẻ thư viện.</summary>
+    [HttpGet]
+    public IActionResult CardLookup() => View(new CardLookupPageVm());
+
+    /// <summary>Tra cứu thẻ và lịch sử đang mượn qua API; MVC không kết nối trực tiếp SQL Server.</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CardLookup(CardLookupPageVm model)
+    {
+        model.CardNumber = model.CardNumber?.Trim() ?? string.Empty;
+        if (model.CardNumber.Length is 0 or > 30)
+        {
+            model.Error = "Vui lòng nhập số thẻ hợp lệ (tối đa 30 ký tự).";
+            return View(model);
+        }
+
+        try
+        {
+            using var http = clients.CreateClient("LibraryApi");
+            using var response = await http.GetAsync($"api/readers/card/{Uri.EscapeDataString(model.CardNumber)}");
+            if (!response.IsSuccessStatusCode)
+            {
+                model.Error = await ReadApiErrorAsync(response) ?? "Không tìm thấy thẻ thư viện.";
+                return View(model);
+            }
+
+            model.Result = await response.Content.ReadFromJsonAsync<ReaderCardVm>();
+            if (model.Result is null) model.Error = "API không trả về thông tin thẻ.";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            log.LogWarning(ex, "Không thể tra cứu thẻ {CardNumber} qua API", model.CardNumber);
+            model.Error = "Hiện chưa kết nối được dịch vụ tra cứu. Vui lòng thử lại sau.";
+        }
+
+        return View(model);
+    }
+
+    /// <summary>Gửi yêu cầu đặt trước qua API khi sách không còn bản sao khả dụng.</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Reserve(int id, string? cardNumber)
+    {
+        var normalizedCard = cardNumber?.Trim();
+        if (id <= 0 || string.IsNullOrWhiteSpace(normalizedCard) || normalizedCard.Length > 30)
+        {
+            TempData["ReservationError"] = "Vui lòng nhập số thẻ thư viện hợp lệ.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
+        try
+        {
+            using var http = clients.CreateClient("LibraryApi");
+            using var response = await http.PostAsJsonAsync("api/catalog/reservations",
+                new { cardNumber = normalizedCard, bookId = id });
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ReservationResultVm>();
+                TempData["ReservationSuccess"] = result?.message ?? "Đã gửi yêu cầu đặt trước.";
+            }
+            else
+            {
+                TempData["ReservationError"] = await ReadApiErrorAsync(response)
+                    ?? "Không thể gửi yêu cầu đặt trước.";
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            log.LogWarning(ex, "Không thể đặt trước sách {BookId}", id);
+            TempData["ReservationError"] = "Hiện chưa kết nối được dịch vụ đặt trước. Vui lòng thử lại sau.";
+        }
+
+        return RedirectToAction(nameof(Details), new { id });
+    }
+
+    private static async Task<string?> ReadApiErrorAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            using var body = await response.Content.ReadFromJsonAsync<JsonDocument>();
+            if (body is not null && body.RootElement.ValueKind == JsonValueKind.Object &&
+                body.RootElement.TryGetProperty("error", out var error))
+                return error.GetString();
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }
 
 public sealed record GenreVm(int id, string name);
@@ -56,3 +148,14 @@ public sealed record BookVm(int id, string title, string? isbn, int? year, strin
 public sealed record BookPageVm(List<BookVm> Items, int Total, int Page, int PageSize);
 public sealed record BookDetailsVm(int id, string title, string? isbn, int? year, string? description,
     string genre, string publisher, List<string> authors, int available);
+public sealed class CardLookupPageVm
+{
+    public string CardNumber { get; set; } = string.Empty;
+    public ReaderCardVm? Result { get; set; }
+    public string? Error { get; set; }
+}
+public sealed record ReaderCardVm(string cardNumber, string fullName, string expiryDate, string status,
+    bool isExpired, bool canBorrow, int openLoansCount, int maxLoans, List<BorrowedBookVm> borrowedBooks);
+public sealed record BorrowedBookVm(string loanCode, string copyCode, string title, string loanDate,
+    string dueDate, int overdueDays, decimal fineExpected, bool isOverdue);
+public sealed record ReservationResultVm(string message);

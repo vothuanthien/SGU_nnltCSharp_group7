@@ -24,18 +24,28 @@ public sealed class MainForm : Form
     private readonly TextBox _search = new() { Width = 240, PlaceholderText = "Từ khóa tìm kiếm" };
     private readonly DataGridView _grid = new() { Dock = DockStyle.Fill, ReadOnly = true, AutoGenerateColumns = true, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, SelectionMode = DataGridViewSelectionMode.FullRowSelect, MultiSelect = false };
     private readonly ToolStripStatusLabel _status = new("Sẵn sàng");
+    private readonly string _role;
 
-    public MainForm(string token, string username)
+    public MainForm(string token, string username, string role)
     {
+        _role = role;
         // Gắn token vào header mặc định để mọi API quản trị được xác thực ở phía máy chủ.
         _api.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        Text = $"Quản trị thư viện · {username}"; Width = 1180; Height = 730; StartPosition = FormStartPosition.CenterScreen;
+        Text = $"Quản trị thư viện · {username} ({role})"; Width = 1220; Height = 760; StartPosition = FormStartPosition.CenterScreen;
         _entity.Items.AddRange(Entities.Cast<object>().ToArray()); _entity.DisplayMember = "Caption"; _entity.SelectedIndex = 0;
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 56, Padding = new Padding(10), WrapContents = false };
-        toolbar.Controls.AddRange([new Label { Text = "Quản lý:", AutoSize = true, Padding = new Padding(0, 8, 4, 0) }, _entity, _search,
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 92, Padding = new Padding(10), WrapContents = true, AutoScroll = true };
+        var toolbarControls = new List<Control>
+        {
+            new Label { Text = "Quản lý:", AutoSize = true, Padding = new Padding(0, 8, 4, 0) }, _entity, _search,
             Button("Tìm kiếm", async () => await LoadRowsAsync()), Button("Tải lại", async () => await LoadRowsAsync()),
             Button("Thêm", async () => await CreateAsync()), Button("Sửa", async () => await UpdateAsync()), Button("Xóa", async () => await DeleteAsync()),
-            Button("Tác giả của sách", async () => await EditAuthorsAsync()), Button("Mượn / Trả", () => { using var form = new CirculationForm(_api); form.ShowDialog(this); return Task.CompletedTask; })]);
+            Button("Tác giả của sách", async () => await EditAuthorsAsync()),
+            Button("Mượn / Trả", () => { using var form = new CirculationForm(_api); form.ShowDialog(this); return Task.CompletedTask; }),
+            Button("Dashboard", () => { using var form = new DashboardForm(_api); form.ShowDialog(this); return Task.CompletedTask; })
+        };
+        if (_role.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+            toolbarControls.Add(Button("Quản lý tài khoản", () => { using var form = new AccountsForm(_api); form.ShowDialog(this); return Task.CompletedTask; }));
+        toolbar.Controls.AddRange(toolbarControls.ToArray());
         var statusBar = new StatusStrip(); statusBar.Items.Add(_status);
         Controls.Add(_grid); Controls.Add(toolbar); Controls.Add(statusBar);
         _entity.SelectedIndexChanged += async (_, _) => await LoadRowsAsync();
@@ -69,7 +79,7 @@ public sealed class MainForm : Form
     // Mở biểu mẫu nhập, gửi POST và tải lại danh sách sau khi tạo thành công.
     private async Task CreateAsync()
     {
-        using var editor = new RecordEditorForm(Current, null);
+        using var editor = new RecordEditorForm(_api, Current, null);
         if (editor.ShowDialog(this) != DialogResult.OK) return;
         await SendAsync(() => _api.PostAsJsonAsync($"api/admin/catalog/{Current.Key}", editor.Values), "Đã thêm bản ghi.");
     }
@@ -78,7 +88,7 @@ public sealed class MainForm : Form
     private async Task UpdateAsync()
     {
         if (!SelectedId(out var id, out var current)) return;
-        using var editor = new RecordEditorForm(Current, current);
+        using var editor = new RecordEditorForm(_api, Current, current);
         if (editor.ShowDialog(this) != DialogResult.OK) return;
         await SendAsync(() => _api.PutAsJsonAsync($"api/admin/catalog/{Current.Key}/{id}", editor.Values), "Đã cập nhật bản ghi.");
     }
@@ -117,20 +127,16 @@ public sealed class MainForm : Form
     private async Task EditAuthorsAsync()
     {
         if (Current.Key != "books") { MessageBox.Show("Hãy chọn danh mục Sách rồi chọn một đầu sách.", "Gán tác giả", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-        if (!SelectedId(out var id, out _)) return;
+        if (!SelectedId(out var id, out var current)) return;
         try
         {
-            var current = await _api.GetFromJsonAsync<JsonElement>($"api/admin/catalog/books/{id}/authors");
-            var ids = current.GetProperty("authorIds").EnumerateArray().Select(x => x.GetInt32());
-            using var prompt = new PromptForm("Tác giả của sách", "Nhập các mã tác giả, cách nhau bằng dấu phẩy (xem danh mục Tác giả):", string.Join(",", ids));
-            if (prompt.ShowDialog(this) != DialogResult.OK) return;
-            var parsed = new List<int>();
-            foreach (var part in prompt.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            var title = current.GetValueOrDefault("title")?.ToString() ?? $"#{id}";
+            using var form = new BookAuthorsForm(_api, id, title);
+            if (form.ShowDialog(this) == DialogResult.OK)
             {
-                if (!int.TryParse(part, out var authorId)) { MessageBox.Show($"'{part}' không phải mã tác giả hợp lệ.", "Kiểm tra dữ liệu", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-                parsed.Add(authorId);
+                _status.Text = "Đã cập nhật tác giả cho sách.";
+                await LoadRowsAsync();
             }
-            await SendAsync(() => _api.PutAsJsonAsync($"api/admin/catalog/books/{id}/authors", new { authorIds = parsed }), "Đã cập nhật tác giả.");
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Lỗi kết nối", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
@@ -163,12 +169,17 @@ public sealed class MainForm : Form
 /// <summary>Biểu mẫu tạo/cập nhật dùng chung; kiểu dữ liệu mỗi trường khai báo theo danh mục.</summary>
 internal sealed class RecordEditorForm : Form
 {
+    private sealed record LookupOption(int? Id, string Name);
+
+    private readonly HttpClient _api;
     private readonly MainForm.Entity _entity;
     private readonly Dictionary<string, Control> _inputs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Button _saveButton = new() { Text = "Lưu", AutoSize = true, DialogResult = DialogResult.None };
     public Dictionary<string, object?> Values { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public RecordEditorForm(MainForm.Entity entity, Dictionary<string, object?>? initial)
+    public RecordEditorForm(HttpClient api, MainForm.Entity entity, Dictionary<string, object?>? initial)
     {
+        _api = api;
         _entity = entity; Text = initial is null ? $"Thêm {entity.Caption}" : $"Sửa {entity.Caption}";
         Width = 560; Height = Math.Min(720, 170 + entity.Fields.Length * 56); StartPosition = FormStartPosition.CenterParent;
         var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 2, AutoScroll = true };
@@ -176,18 +187,62 @@ internal sealed class RecordEditorForm : Form
         for (var i = 0; i < entity.Fields.Length; i++)
         {
             var field = entity.Fields[i]; var label = new Label { Text = entity.Labels[i], AutoSize = true, Anchor = AnchorStyles.Left };
-            Control input = entity.Types[i] == "bool" ? new CheckBox { Text = "Có", AutoSize = true } : new TextBox { Dock = DockStyle.Fill };
+            Control input = field is "genreId" or "publisherId"
+                ? new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList }
+                : entity.Types[i] == "bool" ? new CheckBox { Text = "Có", AutoSize = true } : new TextBox { Dock = DockStyle.Fill };
             var current = initial is not null && initial.TryGetValue(field, out var value) ? value : null;
             if (input is CheckBox check) check.Checked = current is bool b ? b : current?.ToString()?.Equals("True", StringComparison.OrdinalIgnoreCase) ?? (field == "isActive");
             if (input is TextBox text) text.Text = current?.ToString() ?? (field is "registeredAt" or "expiryDate" ? DateTime.Today.ToString("yyyy-MM-dd") : "");
             _inputs[field] = input; panel.Controls.Add(label, 0, i); panel.Controls.Add(input, 1, i);
         }
-        var save = new Button { Text = "Lưu", AutoSize = true, DialogResult = DialogResult.None };
-        save.Click += (_, _) => { if (CollectValues()) { DialogResult = DialogResult.OK; Close(); } };
+        _saveButton.Enabled = !entity.Fields.Any(field => field is "genreId" or "publisherId");
+        _saveButton.Click += (_, _) => { if (CollectValues()) { DialogResult = DialogResult.OK; Close(); } };
         var cancel = new Button { Text = "Hủy", AutoSize = true, DialogResult = DialogResult.Cancel };
-        panel.Controls.Add(save, 0, entity.Fields.Length); panel.Controls.Add(cancel, 1, entity.Fields.Length);
-        Controls.Add(panel); AcceptButton = save; CancelButton = cancel;
+        panel.Controls.Add(_saveButton, 0, entity.Fields.Length); panel.Controls.Add(cancel, 1, entity.Fields.Length);
+        Controls.Add(panel); AcceptButton = _saveButton; CancelButton = cancel;
+        Load += async (_, _) => await LoadCatalogOptionsAsync(initial);
     }
+
+    private async Task LoadCatalogOptionsAsync(Dictionary<string, object?>? initial)
+    {
+        foreach (var field in new[] { "genreId", "publisherId" })
+        {
+            if (_inputs.GetValueOrDefault(field) is not ComboBox combo) continue;
+            var currentId = ReadNullableInt(initial?.GetValueOrDefault(field));
+            var resource = field == "genreId" ? "genres" : "publishers";
+            var nameProperty = "name";
+            var options = new List<LookupOption> { new(null, "— Không chọn —") };
+            try
+            {
+                var rows = await _api.GetFromJsonAsync<List<Dictionary<string, JsonElement>>>($"api/admin/catalog/{resource}") ?? [];
+                foreach (var row in rows)
+                {
+                    if (!row.TryGetValue("id", out var idValue) || !idValue.TryGetInt32(out var id) ||
+                        !row.TryGetValue(nameProperty, out var nameValue)) continue;
+                    if (row.TryGetValue("isActive", out var activeValue) && activeValue.ValueKind == JsonValueKind.False) continue;
+                    options.Add(new LookupOption(id, nameValue.GetString() ?? $"#{id}"));
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Không tải được danh sách { (field == "genreId" ? "thể loại" : "nhà xuất bản") } từ API. " +
+                    (currentId.HasValue ? "Giá trị hiện tại được giữ nguyên; bạn vẫn có thể sửa các trường khác." : "Bạn vẫn có thể lưu các trường khác.") +
+                    $"\n\nChi tiết: {ex.Message}", "Không tải được danh mục", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            if (currentId.HasValue && options.All(option => option.Id != currentId))
+                options.Add(new LookupOption(currentId, $"#{currentId} (giá trị hiện tại)"));
+            combo.DisplayMember = nameof(LookupOption.Name);
+            combo.ValueMember = nameof(LookupOption.Id);
+            combo.DataSource = options;
+            if (currentId.HasValue) combo.SelectedValue = currentId.Value;
+            else combo.SelectedIndex = 0;
+        }
+        _saveButton.Enabled = true;
+    }
+
+    private static int? ReadNullableInt(object? value) =>
+        value is not null && int.TryParse(value.ToString(), out var id) ? id : null;
 
     // Chuyển nội dung nhập thành JSON kiểu đúng; ngày/năm/số nguyên được kiểm tra trước khi gửi.
     private bool CollectValues()
@@ -197,6 +252,11 @@ internal sealed class RecordEditorForm : Form
         {
             var key = _entity.Fields[i]; var input = _inputs[key];
             if (input is CheckBox check) { Values[key] = check.Checked; continue; }
+            if (input is ComboBox combo)
+            {
+                Values[key] = combo.SelectedValue is int selectedId ? selectedId : null;
+                continue;
+            }
             var text = ((TextBox)input).Text.Trim();
             if (text.Length == 0) { Values[key] = null; continue; }
             if (_entity.Types[i] == "int")
