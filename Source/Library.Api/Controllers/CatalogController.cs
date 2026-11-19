@@ -29,6 +29,8 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
         if (genreId.HasValue) books = books.Where(b => b.GenreId == genreId.Value);
         if (availableOnly) books = books.Where(b => b.Copies.Any(x => x.Status == "Available"));
         var total = await books.CountAsync();
+        var lastPage = total == 0 ? 1 : 1 + (total - 1) / pageSize;
+        page = Math.Min(page, lastPage);
 
         var ordered = sort?.Trim().ToLowerInvariant() switch
         {
@@ -38,7 +40,7 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
             _ => books.OrderBy(b => b.Title)
         };
 
-        var rows = await ordered.Skip((page - 1) * pageSize).Take(pageSize)
+        var rows = await ordered.ThenBy(b => b.BookId).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(b => new { id = b.BookId, title = b.Title, isbn = b.ISBN, year = b.PublishedYear,
                 genre = b.Genre == null ? "Chưa phân loại" : b.Genre.Name,
                 authors = b.BookAuthors.Select(x => x.Author.FullName).ToList(),

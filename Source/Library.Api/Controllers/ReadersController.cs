@@ -12,11 +12,17 @@ namespace Library.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/readers")]
-public sealed class ReadersController(DbFactory db) : ControllerBase
+public sealed class ReadersController(DbFactory db, IConfiguration configuration) : ControllerBase
 {
     [HttpGet("card/{cardNumber}")]
     public async Task<IActionResult> LookupCard(string cardNumber)
     {
+        if (!configuration.GetValue<bool>("Demo:AllowPublicCardLookup"))
+        {
+            if (User.Identity?.IsAuthenticated != true) return Unauthorized();
+            if (!User.IsInRole("Admin") && !User.IsInRole("Librarian")) return Forbid();
+        }
+
         if (string.IsNullOrWhiteSpace(cardNumber))
             return BadRequest(new { error = "Vui lòng nhập số thẻ bạn đọc." });
 

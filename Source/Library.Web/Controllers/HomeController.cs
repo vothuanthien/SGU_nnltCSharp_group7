@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -45,10 +46,28 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
         try
         {
             using var http = clients.CreateClient("LibraryApi");
-            var book = await http.GetFromJsonAsync<BookDetailsVm>($"api/catalog/books/{id}");
-            return book is null ? NotFound() : View(book);
+            using var response = await http.GetAsync($"api/catalog/books/{id}", HttpContext.RequestAborted);
+            if (response.StatusCode == HttpStatusCode.NotFound) return NotFound();
+            response.EnsureSuccessStatusCode();
+            var book = await response.Content.ReadFromJsonAsync<BookDetailsVm>(HttpContext.RequestAborted);
+            if (book is not null) return View(book);
         }
-        catch (Exception ex) { log.LogWarning(ex, "Không thể tải chi tiết sách {BookId}", id); return NotFound(); }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException ||
+            ex is OperationCanceledException && !HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            log.LogWarning(ex, "Không thể tải chi tiết sách {BookId}", id);
+        }
+
+        Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        return View("Error");
+    }
+
+    [Route("/Home/Error")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult Error()
+    {
+        Response.StatusCode = StatusCodes.Status500InternalServerError;
+        return View("Error");
     }
 
     /// <summary>Hiển thị biểu mẫu tra cứu thẻ thư viện.</summary>
@@ -73,7 +92,12 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
             using var response = await http.GetAsync($"api/readers/card/{Uri.EscapeDataString(model.CardNumber)}");
             if (!response.IsSuccessStatusCode)
             {
-                model.Error = await ReadApiErrorAsync(response) ?? "Không tìm thấy thẻ thư viện.";
+                model.Error = response.StatusCode switch
+                {
+                    HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "Vui lòng liên hệ thủ thư để tra cứu thẻ.",
+                    HttpStatusCode.NotFound => "Không tìm thấy thẻ thư viện.",
+                    _ => "Dịch vụ tra cứu tạm thời không khả dụng."
+                };
                 return View(model);
             }
 
