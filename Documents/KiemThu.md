@@ -7,8 +7,19 @@ Quy ước: `[x]` = đã thực sự chạy và có kết quả; `[ ]` = **chưa
 - [x] `dotnet run --project Tests/Library.Tests`: 20 kiểm tra đạt (LoanPolicy, PBKDF2, kho phiên).
 - [x] Handler xác thực phiên chạy thử trên Kestrel: không token → 401, token sai → 401, role Librarian → 200, role không hợp lệ → 403.
 
-## B. Chưa chạy (môi trường soạn không tải được gói NuGet EF Core/SqlClient, không có SQL Server/Docker/Windows)
-Build toàn solution, API với SQL Server, WinForms và Docker đều **chưa được kiểm chứng**.
+### Kiểm thử demo ngày 19/11/2026
+
+Môi trường Windows, Docker Desktop và SQL Server với dữ liệu mẫu. Khởi động theo [hướng dẫn chạy web](../CHAY-WEB.md).
+
+- [x] Web tải được tại `http://localhost:5002`. API `/health/db` trả `database: connected` và 20 đầu sách.
+- [x] Tìm `Clean Code` trên web có kết quả. Với `?page=999`, danh mục hiển thị trang cuối với 8 đầu sách.
+- [x] Đăng nhập API bằng tài khoản demo, tra cứu thẻ `THE0001` và lập phiếu mượn bản sao `CSHARP-001`. Tra cứu lại thấy bản sao trong danh sách đang mượn.
+- [x] Trả bản sao với tình trạng `Normal`. API trả `Available`, tiền phạt 0 và thẻ không còn hiển thị bản sao này. Số bản sao sẵn có của đầu sách qua API lần lượt là **2 → 1 → 2**.
+- [x] Gửi yêu cầu trả lại cùng bản sao sau khi đã trả. API phản hồi `409 Conflict`.
+
+Luồng mượn và trả được kiểm tra qua API. Các mục về giao diện WinForms, trả trễ, sách hư hỏng và mất sách vẫn cần kiểm tra riêng.
+
+## B. Các kiểm tra còn lại
 
 ### B1. Build
 - [ ] Mở `QuanLyThuVien.sln` bằng Visual Studio 2022, Restore, Build Solution: 0 lỗi.
@@ -21,8 +32,7 @@ Build toàn solution, API với SQL Server, WinForms và Docker đều **chưa �
 - [ ] Mượn/trả: tên thủ thư trong bảng `Loans.StaffUsername` / `Returns.StaffUsername` là tên tài khoản đăng nhập, dù client có gửi `staffUsername` khác.
 - [ ] Mượn: thẻ hết hạn → 409; vượt `MaxLoans` → 409; bản sao không `Available` → 409 và rollback (không phát sinh phiếu).
 - [ ] Hai request mượn cùng một bản sao đồng thời: chỉ một thành công.
-- [ ] Trả đúng hạn (phạt 0), trả trễ (phạt = số ngày × `FinePerDay`), `Damaged`, `Lost` → trạng thái bản sao đúng.
-- [ ] Trả lại một bản sao đã trả → 409.
+- [ ] Trả trễ (phạt = số ngày × `FinePerDay`), `Damaged`, `Lost` → trạng thái bản sao đúng.
 - [ ] CRUD sách, bản sao, bạn đọc, tác giả, thể loại, NXB: thêm/sửa/xóa, dữ liệu trùng (ISBN, mã bản sao) → 409, xóa dữ liệu đang được tham chiếu → 409.
 - [ ] `PUT /api/admin/catalog/books/{id}/authors` thay danh sách tác giả; mã tác giả không tồn tại → 409.
 
