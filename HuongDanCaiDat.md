@@ -4,6 +4,7 @@
 
 - Windows 10/11, .NET SDK 8.0 và SQL Server LocalDB (instance `MSSQLLocalDB`).
 - Cơ sở dữ liệu `LibraryManagement` đã được tạo và có dữ liệu mẫu.
+- Nếu database đã tồn tại, chạy các migration `Database/08_ReaderPortal_Update.sql` đến `Database/11_ReaderPortal_Enhancements.sql` để bật cổng bạn đọc, yêu cầu mượn, phí bồi thường, gia hạn, thông báo và nhật ký.
 
 Kiểm tra SDK:
 
@@ -23,7 +24,7 @@ Trong PowerShell, chạy:
 SqlLocalDB start MSSQLLocalDB
 ```
 
-Nếu cơ sở dữ liệu `LibraryManagement` chưa tồn tại, mở SQL Server Management Studio, kết nối tới `(localdb)\MSSQLLocalDB`, rồi chạy lần lượt các script `Database/01_CreateDatabase.sql` đến `Database/04_SeedData.sql`. Sau đó chạy `Database/07_ProfessionalSkills_Update.sql` để thêm dữ liệu hồ sơ tài khoản và ràng buộc đặt trước, rồi chạy `Database/06_CreateDemoAdmin.sql`. Script `05_TestQueries.sql` chỉ dùng để xem các truy vấn kiểm tra. Script cập nhật có thể chạy lại an toàn; nếu phát hiện yêu cầu đặt trước Pending trùng, script dừng để dữ liệu được rà soát trước khi tạo chỉ mục.
+Nếu cơ sở dữ liệu `LibraryManagement` chưa tồn tại, mở SQL Server Management Studio, kết nối tới `(localdb)\MSSQLLocalDB`, rồi chạy lần lượt các script `Database/01_CreateDatabase.sql` đến `Database/04_SeedData.sql`. Sau đó chạy `Database/07_ProfessionalSkills_Update.sql`, các migration `Database/08_ReaderPortal_Update.sql` đến `Database/11_ReaderPortal_Enhancements.sql` để bật tài khoản bạn đọc, đặt trước, yêu cầu mượn, phí bồi thường, gia hạn và thông báo; cuối cùng chạy `Database/06_CreateDemoAdmin.sql`. Script `05_TestQueries.sql` chỉ dùng để xem các truy vấn kiểm tra. Các script cập nhật có thể chạy lại an toàn; nếu phát hiện yêu cầu đang hoạt động bị trùng, script dừng để dữ liệu được rà soát.
 
 ## 4. Chạy API
 
@@ -50,18 +51,22 @@ Mở `http://localhost:5002` trên trình duyệt. API ở terminal thứ nhất
 
 ## 6. Chạy ứng dụng quản trị Windows Forms
 
-Mở terminal thứ ba, vẫn ở thư mục gốc:
+Mở terminal tại thư mục gốc và chạy script tiện ích:
 
 ```powershell
-dotnet run --project .\Source\Library.Admin.WinForms\Library.Admin.WinForms.csproj
+.\ChayAdmin.ps1
 ```
 
-Tài khoản demo local: `admin`; mật khẩu: `Admin@12345`. API cần tiếp tục chạy để đăng nhập và dùng chức năng quản trị.
+Script tự khởi động LocalDB, kiểm tra API/SQL Server; nếu API chưa chạy thì tự bật API ở chế độ nền rồi mở WinForms. API nền tiếp tục chạy sau khi đóng WinForms để Web có thể dùng chung. Những lần chạy sau chỉ cần chạy lại script. Nếu Windows chặn script, dùng `powershell -ExecutionPolicy Bypass -File .\ChayAdmin.ps1` trong terminal tại thư mục gốc.
+
+Tài khoản demo local: `admin`; mật khẩu: `Admin@12345`.
 
 ## 7. Dừng chương trình và xử lý lỗi
 
 - Dừng API/Web bằng `Ctrl+C` trong terminal tương ứng; đóng cửa sổ Windows Forms để thoát.
+- API do `ChayAdmin.ps1` mở chạy nền; muốn dừng thì tìm tiến trình API trong Task Manager hoặc khởi động lại máy. Nếu API đã chạy, script dùng lại tiến trình đó.
 - Nếu API không phản hồi, kiểm tra `http://localhost:5001/health` và terminal API.
+- Nếu build Web báo `MSB3021` và file `Library.Web.exe` đang được tiến trình khác sử dụng, Web đã được mở trước đó: mở `http://localhost:5002` để dùng phiên đang chạy, hoặc nhấn `Ctrl+C` ở terminal Web cũ rồi chạy lại lệnh `dotnet run`.
 - Nếu LocalDB không kết nối, chạy `SqlLocalDB info MSSQLLocalDB`, rồi thử `SqlLocalDB start MSSQLLocalDB`.
 - Nếu cổng đang được dùng, dừng phiên cũ bằng `Ctrl+C` rồi chạy lại.
 - Nếu đăng nhập không được, kiểm tra API còn chạy và tài khoản demo đã được tạo bằng script `06_CreateDemoAdmin.sql`.
@@ -75,4 +80,7 @@ Xem `Documents/Docker.md`. Tóm tắt: `copy .env.example .env`, sửa mật kh�
 
 - `POST /api/loans` và `POST /api/returns` yêu cầu đăng nhập bằng header `Authorization: Bearer <token>`; tên thủ thư lấy từ phiên, không nhận `staffUsername` từ client.
 - Cơ chế xác thực là bearer token phiên, không phải JWT. Chạy local không Docker dùng script `06_CreateDemoAdmin.sql` để tạo tài khoản demo `admin`; chỉ dùng trong môi trường học tập trên localhost.
+- Bạn đọc đăng ký trên Web bằng tên đăng nhập tự chọn, họ tên, email/điện thoại và mật khẩu (tối thiểu 8 ký tự). Dùng tên đăng nhập và mật khẩu để vào cổng bạn đọc; số thẻ tự cấp dùng khi mượn/trả.
+- Bạn đọc có thể gửi yêu cầu mượn từ trang chi tiết sách đang còn bản sao. Thủ thư duyệt trong WinForms để hệ thống gán cuốn và lập phiếu mượn.
+- Nếu chạy LocalDB, áp dụng các script `08_ReaderPortal_Update.sql` đến `11_ReaderPortal_Enhancements.sql` sau `07_ProfessionalSkills_Update.sql`; Docker tự áp dụng migration khi API khởi động.
 - Web đọc `LibraryApi:BaseUrl` (mặc định `http://localhost:5001/`); WinForms đọc biến môi trường `LIBRARY_API_URL` (cùng mặc định).

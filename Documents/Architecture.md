@@ -25,8 +25,9 @@ Luồng: `Web/WinForms → HTTP → Library.Api → (EF Core hoặc ADO.NET) →
 ## Ma trận quyền
 | Chức năng | Admin | Librarian | Bạn đọc |
 |---|---|---|---|
-| Quản lý tài khoản, vai trò | Dự kiến (chưa làm) | Không | Không |
+| Quản lý tài khoản thủ thư, vai trò | Có | Không | Không |
 | CRUD sách, bản sao, bạn đọc, danh mục | Có | Có | Không |
 | Mượn, trả | Có | Có | Không |
 | Tra cứu sách công khai (Web) | Có | Có | Có |
-| Đặt trước, lịch sử cá nhân | Chưa làm | Chưa làm | Chưa làm |
+| Đặt trước, xem lịch sử mượn | Quản lý trạng thái | Xử lý/giữ sách | Có trên Web |
+| Thu tiền phạt | Có | Có | Xem số đã thanh toán trong lịch sử |
