@@ -13,7 +13,7 @@ namespace Library.Api.Controllers;
 [Authorize(Roles = "Admin,Librarian")]
 public sealed class ReturnsController(DbFactory db, ILogger<ReturnsController> logger) : ControllerBase
 {
-    public sealed record ReturnRequest(string? CopyCode, string? Condition);
+    public sealed record ReturnRequest(string? CopyCode, string? Condition, decimal CompensationAmount = 0);
 
     private static readonly string[] Conditions = ["Normal", "Damaged", "Lost"];
 
@@ -24,6 +24,9 @@ public sealed class ReturnsController(DbFactory db, ILogger<ReturnsController> l
         if (string.IsNullOrWhiteSpace(staff)) return Unauthorized(new { error = "Vui lòng đăng nhập quản trị." });
         if (string.IsNullOrWhiteSpace(request.CopyCode) || request.Condition is null || !Conditions.Contains(request.Condition))
             return BadRequest(new { error = "Mã bản sao hoặc tình trạng sách không hợp lệ (Normal, Damaged, Lost)." });
+        if (request.CompensationAmount < 0 || (request.Condition == "Normal" && request.CompensationAmount != 0) ||
+            (request.Condition is "Damaged" or "Lost" && request.CompensationAmount <= 0))
+            return BadRequest(new { error = "Sách hỏng hoặc mất cần nhập phí sửa chữa/thay thế lớn hơn 0; sách bình thường không có phí bồi thường." });
 
         await using var connection = db.Create();
         await connection.OpenAsync();
@@ -48,7 +51,9 @@ public sealed class ReturnsController(DbFactory db, ILogger<ReturnsController> l
 
             var policy = await LoanPolicyStore.LoadAsync(connection, tx);
             var overdueDays = policy.OverdueDays(due, today);
-            var fine = policy.Fine(due, today);
+            var overdueFine = policy.Fine(due, today);
+            var compensationAmount = request.CompensationAmount;
+            var fine = overdueFine + compensationAmount;
             var copyStatus = request.Condition == "Normal" ? "Available" : request.Condition;
 
             await using (var close = new SqlCommand(
@@ -61,12 +66,14 @@ public sealed class ReturnsController(DbFactory db, ILogger<ReturnsController> l
 
             int returnId;
             await using (var insert = new SqlCommand(
-                "INSERT INTO [Returns](LoanDetailId, ReturnedAt, Condition, OverdueDays, FineAmount, StaffUsername) " +
-                "OUTPUT INSERTED.ReturnId VALUES(@detail, SYSDATETIME(), @condition, @days, @fine, @staff)", connection, tx))
+                "INSERT INTO [Returns](LoanDetailId, ReturnedAt, Condition, OverdueDays, OverdueFine, CompensationAmount, FineAmount, StaffUsername) " +
+                "OUTPUT INSERTED.ReturnId VALUES(@detail, SYSDATETIME(), @condition, @days, @overdueFine, @compensation, @fine, @staff)", connection, tx))
             {
                 insert.Parameters.AddWithValue("@detail", detailId);
                 insert.Parameters.AddWithValue("@condition", request.Condition);
                 insert.Parameters.AddWithValue("@days", overdueDays);
+                insert.Parameters.Add(new SqlParameter("@overdueFine", SqlDbType.Decimal) { Precision = 12, Scale = 2, Value = overdueFine });
+                insert.Parameters.Add(new SqlParameter("@compensation", SqlDbType.Decimal) { Precision = 12, Scale = 2, Value = compensationAmount });
                 insert.Parameters.Add(new SqlParameter("@fine", SqlDbType.Decimal) { Precision = 12, Scale = 2, Value = fine });
                 insert.Parameters.AddWithValue("@staff", staff);
                 returnId = Convert.ToInt32(await insert.ExecuteScalarAsync());
@@ -79,8 +86,10 @@ public sealed class ReturnsController(DbFactory db, ILogger<ReturnsController> l
                 await update.ExecuteNonQueryAsync();
             }
 
+            await ReaderNotificationStore.AuditAsync(connection,tx,staff,$"Return.{request.Condition}","Return",returnId.ToString());
+
             await tx.CommitAsync();
-            return Ok(new { returnId, overdueDays, fineAmount = fine, status = copyStatus });
+            return Ok(new { returnId, overdueDays, overdueFine, compensationAmount, fineAmount = fine, status = copyStatus });
         }
         catch (InvalidOperationException ex)
         {

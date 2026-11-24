@@ -22,6 +22,7 @@ internal sealed class CirculationForm : Form
 
     private readonly TextBox _returnCopy = new() { Dock = DockStyle.Fill, PlaceholderText = "Mã bản sao đang mượn (hoặc nhấp đúp từ danh sách trên)" };
     private readonly ComboBox _condition = new() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = "Caption" };
+    private readonly NumericUpDown _compensationAmount = new() { Dock = DockStyle.Left, Width = 180, Minimum = 0, Maximum = 1000000000, ThousandsSeparator = true, DecimalPlaces = 0, Enabled = false };
     private readonly Button _returnButton = new() { Text = "Nhận trả sách", AutoSize = true, Font = new Font("Segoe UI", 9, FontStyle.Bold) };
 
     private readonly DataGridView _gridLoans = new()
@@ -46,7 +47,7 @@ internal sealed class CirculationForm : Form
         _api = api;
         Text = "Mượn / Trả sách & Tra cứu thẻ bạn đọc";
         Width = 880;
-        Height = 680;
+        Height = 720;
         StartPosition = FormStartPosition.CenterParent;
 
         _condition.Items.AddRange(new object[]
@@ -56,6 +57,12 @@ internal sealed class CirculationForm : Form
             new ConditionItem("Lost", "Mất sách")
         });
         _condition.SelectedIndex = 0;
+        _condition.SelectedIndexChanged += (_, _) =>
+        {
+            var needsCompensation = _condition.SelectedItem is ConditionItem item && item.Value is "Damaged" or "Lost";
+            _compensationAmount.Enabled = needsCompensation;
+            if (!needsCompensation) _compensationAmount.Value = 0;
+        };
 
         _lookupBtn.Click += async (_, _) => await LookupReaderAsync();
         _loanButton.Click += async (_, _) => await CreateLoanAsync();
@@ -86,7 +93,7 @@ internal sealed class CirculationForm : Form
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 100)); // Tra cứu thẻ
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 170)); // Danh sách sách đang mượn
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 105)); // Lập phiếu mượn
-        mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 105)); // Nhận trả sách
+        mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 145)); // Nhận trả sách và phí bồi thường
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Khung kết quả
 
         // 1. Group Tra cứu thẻ
@@ -116,8 +123,10 @@ internal sealed class CirculationForm : Form
         mainLayout.Controls.Add(loanGroup, 0, 2);
 
         // 4. Group Nhận trả sách
-        var returnGroup = new GroupBox { Text = "3. Nhận trả sách", Dock = DockStyle.Fill };
-        var returnLayout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8), ColumnCount = 5 };
+        var returnGroup = new GroupBox { Text = "3. Nhận trả sách / ghi nhận hư hỏng hoặc mất", Dock = DockStyle.Fill };
+        var returnLayout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8), ColumnCount = 5, RowCount = 2 };
+        returnLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        returnLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
         returnLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
         returnLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
         returnLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 85));
@@ -128,6 +137,10 @@ internal sealed class CirculationForm : Form
         returnLayout.Controls.Add(new Label { Text = "Tình trạng:", AutoSize = true, Anchor = AnchorStyles.Left }, 2, 0);
         returnLayout.Controls.Add(_condition, 3, 0);
         returnLayout.Controls.Add(_returnButton, 4, 0);
+        returnLayout.Controls.Add(new Label { Text = "Phí bồi thường:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
+        returnLayout.Controls.Add(_compensationAmount, 1, 1);
+        returnLayout.Controls.Add(new Label { Text = "Nhập phí sửa chữa (hỏng) hoặc thay thế (mất) theo quy định thư viện.", AutoSize = true, Anchor = AnchorStyles.Left }, 2, 1);
+        returnLayout.SetColumnSpan(returnLayout.GetControlFromPosition(2, 1)!, 3);
         returnGroup.Controls.Add(returnLayout);
         mainLayout.Controls.Add(returnGroup, 0, 3);
 
@@ -286,20 +299,32 @@ internal sealed class CirculationForm : Form
         }
 
         var condition = ((ConditionItem)_condition.SelectedItem!).Value;
+        var compensationAmount = _compensationAmount.Value;
+        if (condition is "Damaged" or "Lost" && compensationAmount <= 0)
+        {
+            _result.Text = "Hãy nhập phí sửa chữa hoặc thay thế lớn hơn 0 cho sách hỏng/mất.";
+            _compensationAmount.Focus();
+            return;
+        }
         _returnButton.Enabled = false;
         try
         {
-            var response = await PostAsync("api/returns", new { copyCode, condition });
+            var response = await PostAsync("api/returns", new { copyCode, condition, compensationAmount });
             if (response is null) return;
 
             var data = await response.Content.ReadFromJsonAsync<JsonElement>();
             var overdueDays = data.GetProperty("overdueDays").GetInt32();
+            var overdueFine = data.GetProperty("overdueFine").GetDecimal();
+            var compensation = data.GetProperty("compensationAmount").GetDecimal();
             var fine = data.GetProperty("fineAmount").GetDecimal();
             var status = data.GetProperty("status").GetString();
 
             _result.Text = $"✓ Nhận trả sách thành công cho cuốn [{copyCode}]!\n" +
-                           $"Trạng thái cuốn: {status}. Số ngày trễ: {overdueDays} ngày. Tiền phạt: {fine:N0} VNĐ.";
+                           $"Trạng thái cuốn: {status}. Số ngày trễ: {overdueDays} ngày. Phạt trễ: {overdueFine:N0} VNĐ. " +
+                           $"Bồi thường: {compensation:N0} VNĐ. Tổng cần thu: {fine:N0} VNĐ.";
             _returnCopy.Clear();
+            _compensationAmount.Value = 0;
+            _condition.SelectedIndex = 0;
 
             // Nếu đang tra cứu số thẻ thì tự động cập nhật lại danh sách sách đang mượn
             if (!string.IsNullOrWhiteSpace(_card.Text))
