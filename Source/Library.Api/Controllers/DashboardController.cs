@@ -132,8 +132,10 @@ public sealed class DashboardController(DbFactory db) : ControllerBase
 
     // Dữ liệu phục vụ xuất báo cáo lịch sử mượn trả
     [HttpGet("export/loans")]
-    public async Task<IActionResult> ExportLoans()
+    public async Task<IActionResult> ExportLoans([FromQuery] DateTime? from, [FromQuery] DateTime? to)
     {
+        if (from.HasValue && to.HasValue && from.Value.Date > to.Value.Date)
+            return BadRequest(new { error = "Ngày bắt đầu phải trước hoặc bằng ngày kết thúc." });
         await using var connection = db.Create();
         await connection.OpenAsync();
 
@@ -150,11 +152,15 @@ public sealed class DashboardController(DbFactory db) : ControllerBase
             JOIN BookCopies c ON c.CopyId = d.CopyId
             JOIN BookTitles b ON b.BookId = c.BookId
             LEFT JOIN [Returns] ret ON ret.LoanDetailId = d.LoanDetailId
+            WHERE (@from IS NULL OR l.LoanDate >= @from)
+              AND (@to IS NULL OR l.LoanDate < DATEADD(day,1,@to))
             ORDER BY l.LoanDate DESC
             """;
 
         var list = new List<object>();
         await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.Add("@from", SqlDbType.Date).Value = from.HasValue ? from.Value.Date : DBNull.Value;
+        cmd.Parameters.Add("@to", SqlDbType.Date).Value = to.HasValue ? to.Value.Date : DBNull.Value;
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
         {
@@ -178,5 +184,38 @@ public sealed class DashboardController(DbFactory db) : ControllerBase
         }
 
         return Ok(list);
+    }
+
+    [HttpGet("export/overdue")]
+    public async Task<IActionResult> ExportOverdue([FromQuery] DateTime? from, [FromQuery] DateTime? to)
+    {
+        if (from.HasValue && to.HasValue && from.Value.Date > to.Value.Date)
+            return BadRequest(new { error = "Ngày bắt đầu phải trước hoặc bằng ngày kết thúc." });
+        await using var connection=db.Create();
+        await connection.OpenAsync();
+        var policy=await LoanPolicyStore.LoadAsync(connection);
+        const string sql="""
+            SELECT l.LoanCode,r.CardNumber,r.FullName,r.Phone,b.Title,c.CopyCode,l.LoanDate,d.DueDate,
+                   DATEDIFF(day,d.DueDate,CAST(SYSDATETIME() AS date)) AS OverdueDays
+            FROM LoanDetails d JOIN Loans l ON l.LoanId=d.LoanId JOIN Readers r ON r.ReaderId=l.ReaderId
+            JOIN BookCopies c ON c.CopyId=d.CopyId JOIN BookTitles b ON b.BookId=c.BookId
+            WHERE d.ReturnedAt IS NULL AND d.DueDate<CAST(SYSDATETIME() AS date)
+              AND (@from IS NULL OR d.DueDate>=@from) AND (@to IS NULL OR d.DueDate<=@to)
+            ORDER BY d.DueDate,r.FullName
+            """;
+        await using var command=new SqlCommand(sql,connection);
+        command.Parameters.Add("@from",SqlDbType.Date).Value=from.HasValue?from.Value.Date:DBNull.Value;
+        command.Parameters.Add("@to",SqlDbType.Date).Value=to.HasValue?to.Value.Date:DBNull.Value;
+        var rows=new List<object>();
+        await using var reader=await command.ExecuteReaderAsync();
+        while(await reader.ReadAsync())
+        {
+            var days=reader.GetInt32(8);
+            rows.Add(new { loanCode=reader.GetString(0),cardNumber=reader.GetString(1),fullName=reader.GetString(2),
+                phone=reader.IsDBNull(3)?"":reader.GetString(3),title=reader.GetString(4),copyCode=reader.GetString(5),
+                loanDate=reader.GetDateTime(6).ToString("yyyy-MM-dd"),dueDate=reader.GetDateTime(7).ToString("yyyy-MM-dd"),
+                overdueDays=days,fineExpected=policy.FinePerDay*days });
+        }
+        return Ok(rows);
     }
 }

@@ -13,7 +13,7 @@ public sealed class MainForm : Form
     [
         new("books", "Sách", ["title","isbn","publishedYear","description","genreId","publisherId","isActive"], ["Tên sách","ISBN","Năm XB","Mô tả","Mã thể loại","Mã NXB","Đang hoạt động"], ["text","text","int","text","int","int","bool"]),
         new("copies", "Bản sao", ["copyCode","bookId","shelfLocation","acquiredAt","status"], ["Mã bản sao","Mã đầu sách","Vị trí kệ","Ngày nhập (yyyy-MM-dd)","Trạng thái"], ["text","int","text","date","text"]),
-        new("readers", "Bạn đọc", ["readerCode","cardNumber","fullName","email","phone","registeredAt","expiryDate","status"], ["Mã bạn đọc","Số thẻ","Họ tên","Email","Điện thoại","Ngày đăng ký (yyyy-MM-dd)","Ngày hết hạn (yyyy-MM-dd)","Trạng thái"], ["text","text","text","text","text","date","date","text"]),
+        new("readers", "Bạn đọc", ["readerCode","cardNumber","fullName","email","phone","username","registeredAt","expiryDate","status"], ["Mã bạn đọc","Số thẻ","Họ tên","Email","Điện thoại","Tên đăng nhập Web","Ngày đăng ký (yyyy-MM-dd)","Ngày hết hạn (yyyy-MM-dd)","Trạng thái"], ["text","text","text","text","text","text","date","date","text"]),
         new("genres", "Thể loại", ["name","isActive"], ["Tên thể loại","Đang hoạt động"], ["text","bool"]),
         new("authors", "Tác giả", ["fullName"], ["Họ tên tác giả"], ["text"]),
         new("publishers", "Nhà xuất bản", ["name"], ["Tên nhà xuất bản"], ["text"])
@@ -41,10 +41,16 @@ public sealed class MainForm : Form
             Button("Thêm", async () => await CreateAsync()), Button("Sửa", async () => await UpdateAsync()), Button("Xóa", async () => await DeleteAsync()),
             Button("Tác giả của sách", async () => await EditAuthorsAsync()),
             Button("Mượn / Trả", () => { using var form = new CirculationForm(_api); form.ShowDialog(this); return Task.CompletedTask; }),
-            Button("Dashboard", () => { using var form = new DashboardForm(_api); form.ShowDialog(this); return Task.CompletedTask; })
+            Button("Đặt trước", () => { using var form = new ReservationsForm(_api); form.ShowDialog(this); return Task.CompletedTask; }),
+            Button("Yêu cầu mượn", () => { using var form = new LoanRequestsForm(_api); form.ShowDialog(this); return Task.CompletedTask; }),
+            Button("Thu tiền phạt", () => { using var form = new FinePaymentsForm(_api); form.ShowDialog(this); return Task.CompletedTask; }),
+            Button("Dashboard / Báo cáo", () => { using var form = new DashboardForm(_api); form.ShowDialog(this); return Task.CompletedTask; })
         };
         if (_role.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+        {
             toolbarControls.Add(Button("Quản lý tài khoản", () => { using var form = new AccountsForm(_api); form.ShowDialog(this); return Task.CompletedTask; }));
+            toolbarControls.Add(Button("Nhật ký hoạt động", () => { using var form = new AuditLogsForm(_api); form.ShowDialog(this); return Task.CompletedTask; }));
+        }
         toolbar.Controls.AddRange(toolbarControls.ToArray());
         var statusBar = new StatusStrip(); statusBar.Items.Add(_status);
         Controls.Add(_grid); Controls.Add(toolbar); Controls.Add(statusBar);

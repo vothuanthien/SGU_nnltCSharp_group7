@@ -54,7 +54,7 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
 
             ["readers"] = new("Readers", "ReaderId",
                 "SELECT TOP (500) ReaderId AS id,ReaderCode AS readerCode,CardNumber AS cardNumber,FullName AS fullName," +
-                "Email AS email,Phone AS phone,RegisteredAt AS registeredAt,ExpiryDate AS expiryDate,Status AS status FROM Readers",
+                "Email AS email,Phone AS phone,Username AS username,RegisteredAt AS registeredAt,ExpiryDate AS expiryDate,Status AS status FROM Readers",
                 "ReaderCode LIKE @term OR CardNumber LIKE @term OR FullName LIKE @term", "FullName",
                 [
                     new("readerCode", "ReaderCode", SqlDbType.NVarChar, 30, true),
@@ -62,6 +62,7 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
                     new("fullName", "FullName", SqlDbType.NVarChar, 200, true),
                     new("email", "Email", SqlDbType.NVarChar, 254),
                     new("phone", "Phone", SqlDbType.NVarChar, 30),
+                    new("username", "Username", SqlDbType.NVarChar, 80),
                     new("registeredAt", "RegisteredAt", SqlDbType.Date, Required: true, DefaultValue: DateTime.Today),
                     new("expiryDate", "ExpiryDate", SqlDbType.Date, Required: true),
                     new("status", "Status", SqlDbType.VarChar, 20, Required: true, DefaultValue: "Active", Allowed: ["Active", "Inactive", "Suspended"])

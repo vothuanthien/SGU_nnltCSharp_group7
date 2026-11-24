@@ -23,6 +23,8 @@ internal sealed class DashboardForm : Form
 
     private sealed record LoanExport(string loanCode, string cardNumber, string readerName, string copyCode,
         string bookTitle, string loanDate, string dueDate, string returnedAt, string status, decimal fineAmount);
+    private sealed record OverdueExport(string loanCode,string cardNumber,string fullName,string phone,string title,
+        string copyCode,string loanDate,string dueDate,int overdueDays,decimal fineExpected);
 
     private readonly HttpClient _api;
     private readonly Label[] _values = Enumerable.Range(0, 5)
@@ -30,6 +32,9 @@ internal sealed class DashboardForm : Form
         .ToArray();
     private readonly Label _updated = new() { AutoSize = true, ForeColor = Color.DimGray, Text = "Chưa tải dữ liệu" };
     private readonly ComboBox _report = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+    private readonly CheckBox _filterDates = new() { Text = "Lọc ngày", AutoSize = true, Padding = new Padding(3, 7, 3, 0) };
+    private readonly DateTimePicker _from = new() { Format = DateTimePickerFormat.Short, Width = 105, Enabled = false, Value = DateTime.Today.AddDays(-30) };
+    private readonly DateTimePicker _to = new() { Format = DateTimePickerFormat.Short, Width = 105, Enabled = false };
     private readonly Button _refresh = new() { Text = "Làm mới", AutoSize = true };
     private readonly Button _export = new() { Text = "Xuất CSV…", AutoSize = true };
 
@@ -64,12 +69,13 @@ internal sealed class DashboardForm : Form
             cards.Controls.Add(card, i % 3, i / 3);
         }
 
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 64, Padding = new Padding(12), WrapContents = false };
-        _report.Items.AddRange(["Danh sách sách", "Phiếu mượn"]);
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 72, Padding = new Padding(8), WrapContents = false, AutoScroll = true };
+        _report.Items.AddRange(["Danh sách sách", "Phiếu mượn", "Quá hạn"]);
         _report.SelectedIndex = 0;
+        _filterDates.CheckedChanged += (_, _) => { _from.Enabled = _filterDates.Checked; _to.Enabled = _filterDates.Checked; };
         _refresh.Click += async (_, _) => await LoadStatsAsync();
         _export.Click += async (_, _) => await ExportAsync();
-        toolbar.Controls.AddRange([_refresh, _updated, _report, _export]);
+        toolbar.Controls.AddRange([_refresh, _updated, _report, _filterDates, _from, _to, _export]);
         Controls.Add(cards);
         Controls.Add(toolbar);
         Load += async (_, _) => await LoadStatsAsync();
@@ -106,7 +112,7 @@ internal sealed class DashboardForm : Form
             AddExtension = true,
             DefaultExt = "csv",
             Filter = "Tệp CSV (mở bằng Excel)|*.csv",
-            FileName = $"{(_report.SelectedIndex == 0 ? "DanhSachSach" : "PhieuMuon")}_{DateTime.Now:yyyyMMdd_HHmm}.csv",
+            FileName = $"{(_report.SelectedIndex switch { 0 => "DanhSachSach", 1 => "PhieuMuon", _ => "QuaHan" })}_{DateTime.Now:yyyyMMdd_HHmm}.csv",
             OverwritePrompt = true
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -114,9 +120,12 @@ internal sealed class DashboardForm : Form
         _export.Enabled = false;
         try
         {
-            string csv = _report.SelectedIndex == 0
-                ? await ExportBooksAsync()
-                : await ExportLoansAsync();
+            string csv = _report.SelectedIndex switch
+            {
+                0 => await ExportBooksAsync(),
+                1 => await ExportLoansAsync(),
+                _ => await ExportOverdueAsync()
+            };
             await File.WriteAllTextAsync(dialog.FileName, csv, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             MessageBox.Show($"Đã xuất báo cáo:\n{dialog.FileName}", "Xuất báo cáo thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -144,7 +153,7 @@ internal sealed class DashboardForm : Form
 
     private async Task<string> ExportLoansAsync()
     {
-        var rows = await _api.GetFromJsonAsync<List<LoanExport>>("api/admin/dashboard/export/loans") ?? [];
+        var rows = await _api.GetFromJsonAsync<List<LoanExport>>($"api/admin/dashboard/export/loans{DateFilterQuery()}") ?? [];
         var csv = new StringBuilder();
         AddCsvRow(csv, ["Mã phiếu", "Số thẻ", "Tên bạn đọc", "Mã bản sao", "Tên sách", "Ngày mượn", "Hạn trả", "Ngày trả", "Trạng thái", "Tiền phạt"]);
         foreach (var row in rows)
@@ -152,6 +161,21 @@ internal sealed class DashboardForm : Form
                 row.loanDate, row.dueDate, row.returnedAt, row.status, row.fineAmount.ToString(CultureInfo.InvariantCulture)]);
         return csv.ToString();
     }
+
+    private async Task<string> ExportOverdueAsync()
+    {
+        var rows=await _api.GetFromJsonAsync<List<OverdueExport>>($"api/admin/dashboard/export/overdue{DateFilterQuery()}")??[];
+        var csv=new StringBuilder();
+        AddCsvRow(csv,["Mã phiếu","Số thẻ","Bạn đọc","Điện thoại","Tên sách","Mã cuốn","Ngày mượn","Hạn trả","Số ngày trễ","Phạt dự kiến"]);
+        foreach(var row in rows)
+            AddCsvRow(csv,[row.loanCode,row.cardNumber,row.fullName,row.phone,row.title,row.copyCode,row.loanDate,row.dueDate,
+                row.overdueDays.ToString(CultureInfo.InvariantCulture),row.fineExpected.ToString(CultureInfo.InvariantCulture)]);
+        return csv.ToString();
+    }
+
+    private string DateFilterQuery() => _filterDates.Checked
+        ? $"?from={_from.Value:yyyy-MM-dd}&to={_to.Value:yyyy-MM-dd}"
+        : string.Empty;
 
     private static void AddCsvRow(StringBuilder csv, IEnumerable<string> cells)
     {
