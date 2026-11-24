@@ -16,7 +16,6 @@ namespace Library.Api.Controllers;
 [Authorize(Roles = "Admin")]
 public sealed class AccountsController(
     DbFactory db,
-    AdminSessionStore sessions,
     ILogger<AccountsController> logger) : ControllerBase
 {
     public sealed record AccountDto(int AccountId, string Username, string? FullName, string Role, bool IsActive, DateTime CreatedAt);
@@ -141,16 +140,28 @@ public sealed class AccountsController(
                 return BadRequest(new { error = "Bạn không thể tự khóa tài khoản Admin đang đăng nhập." });
         }
 
-        await using (var updateCmd = new SqlCommand("UPDATE Accounts SET IsActive = @active WHERE AccountId = @id", connection))
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(HttpContext.RequestAborted);
+        await using (var updateCmd = new SqlCommand(
+            "UPDATE Accounts SET IsActive = @active WHERE AccountId = @id", connection, transaction))
         {
             updateCmd.Parameters.Add("@id", SqlDbType.Int).Value = id;
             updateCmd.Parameters.Add("@active", SqlDbType.Bit).Value = request.IsActive;
-            await updateCmd.ExecuteNonQueryAsync();
+            if (await updateCmd.ExecuteNonQueryAsync(HttpContext.RequestAborted) == 0)
+            {
+                await transaction.RollbackAsync(HttpContext.RequestAborted);
+                return NotFound(new { error = "Không tìm thấy tài khoản." });
+            }
         }
 
         if (!request.IsActive && targetUsername is not null)
-            sessions.RevokeUserSessions(targetUsername);
+        {
+            await using var revoke = new SqlCommand(
+                "DELETE FROM dbo.AdminSessions WHERE Username=@username", connection, transaction);
+            revoke.Parameters.Add("@username", SqlDbType.NVarChar, 80).Value = targetUsername;
+            await revoke.ExecuteNonQueryAsync(HttpContext.RequestAborted);
+        }
 
+        await transaction.CommitAsync(HttpContext.RequestAborted);
         logger.LogInformation("Admin {Admin} đã thay đổi trạng thái tài khoản Id={Id} thành IsActive={Active}",
             currentStaff, id, request.IsActive);
 
@@ -168,20 +179,31 @@ public sealed class AccountsController(
         await connection.OpenAsync();
 
         var newHash = PasswordHashing.Hash(request.NewPassword);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(HttpContext.RequestAborted);
         string? targetUsername;
         await using (var cmd = new SqlCommand(
-            "UPDATE Accounts SET PasswordHash = @hash OUTPUT INSERTED.Username WHERE AccountId = @id", connection))
+            "UPDATE Accounts SET PasswordHash = @hash OUTPUT INSERTED.Username WHERE AccountId = @id",
+            connection, transaction))
         {
             cmd.Parameters.Add("@id", SqlDbType.Int).Value = id;
             cmd.Parameters.Add("@hash", SqlDbType.NVarChar, 500).Value = newHash;
-            targetUsername = (await cmd.ExecuteScalarAsync())?.ToString();
+            targetUsername = (await cmd.ExecuteScalarAsync(HttpContext.RequestAborted))?.ToString();
         }
 
         if (targetUsername is null)
+        {
+            await transaction.RollbackAsync(HttpContext.RequestAborted);
             return NotFound(new { error = "Không tìm thấy tài khoản." });
+        }
 
-        sessions.RevokeUserSessions(targetUsername);
+        await using (var revoke = new SqlCommand(
+            "DELETE FROM dbo.AdminSessions WHERE Username=@username", connection, transaction))
+        {
+            revoke.Parameters.Add("@username", SqlDbType.NVarChar, 80).Value = targetUsername;
+            await revoke.ExecuteNonQueryAsync(HttpContext.RequestAborted);
+        }
 
+        await transaction.CommitAsync(HttpContext.RequestAborted);
         logger.LogInformation("Admin {Admin} đã đặt lại mật khẩu cho tài khoản Id={Id}", User.Identity?.Name, id);
         return NoContent();
     }

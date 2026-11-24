@@ -33,7 +33,7 @@ flowchart LR
 ## Kết nối API ↔ SQL Server
 - Connection string trong container: `Server=sqlserver,1433;...` (tên service, **không** dùng `localhost`).
 - API chờ SQL Server sẵn sàng (thử lại tối đa 30 lần, mỗi 2 giây) trước khi khởi tạo; ngoài ra compose có healthcheck cho SQL Server.
-- Lần chạy đầu, API tự chạy `Database/01..04` (chỉ khi database chưa có bảng `Settings`), sau đó áp dụng migration idempotent `Database/07_ProfessionalSkills_Update.sql` cho cả database mới lẫn volume đã tồn tại. API tạo tài khoản `admin` với mật khẩu lấy từ `ADMIN_PASSWORD`. Script `05` (truy vấn thử) và `06` (admin demo cho máy local) không chạy trong Docker.
+- Lần chạy đầu, API tự chạy `Database/01..04` (chỉ khi database chưa có bảng `Settings`), sau đó áp dụng các migration idempotent `Database/07_ProfessionalSkills_Update.sql`, `08_ReaderAccounts.sql` và `10_AdminSessions.sql` cho cả database mới lẫn volume đã tồn tại. Migration 07 tạo chỉ mục unique cho yêu cầu đặt trước Pending; migration 10 tạo kho phiên bearer. API tạo tài khoản `admin` với mật khẩu lấy từ `ADMIN_PASSWORD`. Script `05` (truy vấn thử), `06` (admin demo cho máy local) và `09` (xóa dữ liệu bạn đọc demo) không chạy tự động trong Docker.
 
 ## Chạy hệ thống
 ```powershell
@@ -44,7 +44,7 @@ docker compose logs api         # xem log khởi tạo database
 curl http://localhost:5001/health
 curl http://localhost:5001/health/db   # {"status":"ok","database":"connected","books":N}
 ```
-Sau đó trên Windows: chạy `Library.Web` (Visual Studio hoặc `dotnet run --project Source/Library.Web`) và `Library.Admin.WinForms`, đăng nhập `admin` với mật khẩu trong `.env`.
+Sau đó trên Windows: chạy `Library.Web` (Visual Studio hoặc `dotnet run --project Source/Library.Web`) và `Library.Admin.WinForms`, đăng nhập quản trị với mật khẩu trong `.env`. Thủ thư tạo hồ sơ bạn đọc và cấp thẻ trong WinForms; bạn đọc đăng ký tài khoản Web bằng số thẻ cùng email đã lưu ở thư viện.
 
 Nếu đổi cổng API trên host: đặt `LibraryApi__BaseUrl` cho Web và `LIBRARY_API_URL` cho WinForms (ví dụ `http://localhost:5050/`).
 
@@ -60,4 +60,4 @@ Nếu lần khởi tạo đầu bị gián đoạn giữa chừng, chạy `docke
 ## Giới hạn
 - Chưa được build/chạy thử trong môi trường soạn tài liệu (không có Docker). Cần chạy theo `KiemThu.md` mục Docker và chụp ảnh minh chứng.
 - Image `mssql/server` không có bản chạy native cho CPU ARM (Mac M-series) ngoài giả lập; Windows x64 không gặp vấn đề này.
-- Phiên đăng nhập lưu trong bộ nhớ API: khởi động lại container `api` thì phải đăng nhập lại.
+- Phiên bearer được lưu dưới dạng SHA-256 hash trong `dbo.AdminSessions`; API restart không làm mất phiên còn hạn. Nhiều API instance phải dùng chung SQL Server/database. Đăng xuất, khóa/reset tài khoản và vô hiệu hóa thẻ sẽ thu hồi các phiên liên quan.

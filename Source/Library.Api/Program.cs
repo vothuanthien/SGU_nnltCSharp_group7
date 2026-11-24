@@ -15,7 +15,8 @@ builder.Services.AddSingleton(new DbFactory(connectionString));
 builder.Services.AddDbContext<LibraryDbContext>(options =>
     options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
 
-// Phiên đăng nhập là bearer token ngẫu nhiên lưu trong bộ nhớ API (không phải JWT).
+// Bearer token là giá trị ngẫu nhiên; kho SQL dùng chung chỉ lưu hash để phiên tồn tại qua restart/API replicas.
+builder.Services.AddSingleton<IAdminSessionRepository, SqlAdminSessionRepository>();
 builder.Services.AddSingleton<AdminSessionStore>();
 builder.Services.AddAuthentication(SessionAuthenticationDefaults.Scheme)
     .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(SessionAuthenticationDefaults.Scheme, null);

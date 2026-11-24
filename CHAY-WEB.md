@@ -12,7 +12,7 @@ Lần đầu tải image và build có thể mất vài phút. Script tạo `.en
 
 - Web: http://localhost:5002
 - Kiểm tra database: http://localhost:5001/health/db
-- Tra cứu thẻ cần tài khoản thủ thư hoặc quản trị trên WinForms. Để thử trang Web với dữ liệu mẫu và cổng chỉ mở trên localhost, thêm `DEMO_ALLOW_PUBLIC_CARD_LOOKUP=true` vào `.env`, chạy lại script, rồi nhập `THE0001` tại `/Home/CardLookup`.
+- Bạn đọc chọn **Đăng ký** trên Web sau khi được thủ thư tạo hồ sơ và cấp thẻ; cần dùng số thẻ cùng email đã lưu tại thư viện. Sau đó đăng nhập để gửi yêu cầu đặt trước khi sách hết và xem lịch sử mượn.
 - Tài khoản quản trị API/WinForms được tạo lần đầu: `admin` / `Admin@12345` (nếu dùng `.env` do script tạo). Web hiện là giao diện bạn đọc, không có trang đăng nhập quản trị.
 
 Các cổng chỉ được mở trên máy cục bộ. Mật khẩu SQL được tạo ngẫu nhiên trong `.env` và file này bị Git bỏ qua. Giữ `.env` để lần chạy sau tiếp tục dùng đúng mật khẩu của database.

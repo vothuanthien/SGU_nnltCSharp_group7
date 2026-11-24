@@ -40,15 +40,21 @@
         }
         @if (Model.available == 0)
         {
-            <form asp-action="Reserve" asp-route-id="@Model.id" method="post" class="reservation-form mt-3">
-                @Html.AntiForgeryToken()
-                <label for="reservation-card" class="form-label">Đặt trước bằng số thẻ thư viện</label>
-                <div class="input-group">
-                    <input id="reservation-card" name="cardNumber" class="form-control" maxlength="30" autocomplete="off" required placeholder="Nhập số thẻ của bạn" />
-                    <button type="submit" class="btn btn-outline-primary">Đặt trước</button>
+            @if (User.Identity?.IsAuthenticated == true && User.IsInRole("Reader"))
+            {
+                <form asp-action="Reserve" asp-route-id="@Model.id" method="post" class="reservation-form mt-3">
+                    <p class="mb-2">Đặt trước bằng tài khoản đang đăng nhập. Bạn có thể theo dõi yêu cầu trong lịch sử mượn.</p>
+                    <button type="submit" class="btn btn-outline-primary">Gửi yêu cầu đặt trước</button>
+                </form>
+            }
+            else
+            {
+                var returnUrl = Url.Action("Details", "Home", new { id = Model.id });
+                <div class="reservation-form mt-3">
+                    <p class="mb-2">Đăng nhập bằng tài khoản bạn đọc để gửi yêu cầu đặt trước.</p>
+                    <a asp-controller="ReaderAccount" asp-action="Login" asp-route-returnUrl="@returnUrl" class="btn btn-outline-primary">Đăng nhập để đặt trước</a>
                 </div>
-                <small class="form-text">Thẻ phải đang hoạt động và chưa hết hạn. Mỗi thẻ chỉ có một yêu cầu chờ cho đầu sách này.</small>
-            </form>
+            }
         }
 
         <section class="description-block">

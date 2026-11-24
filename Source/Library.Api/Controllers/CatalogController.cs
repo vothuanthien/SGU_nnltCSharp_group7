@@ -1,11 +1,12 @@
 using Library.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace Library.Api.Controllers;
 
-/// <summary>Các API công khai phục vụ duyệt danh mục và tra cứu sách trên Web.</summary>
+/// <summary>API danh mục công khai và yêu cầu đặt trước dành cho bạn đọc đã đăng nhập.</summary>
 [ApiController, Route("api/catalog")]
 public sealed class CatalogController(LibraryDbContext db) : ControllerBase
 {
@@ -19,7 +20,8 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
     [HttpGet("books")]
     public async Task<IActionResult> Search([FromQuery] string? q, [FromQuery] int? genreId,
         [FromQuery] bool availableOnly = false, [FromQuery] string? sort = null,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 12)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 12,
+        [FromQuery] string? author = null, [FromQuery] int? year = null)
     {
         page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 1, 50);
         var term = q?.Trim();
@@ -27,6 +29,8 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
         if (!string.IsNullOrWhiteSpace(term)) books = books.Where(b => b.Title.Contains(term) ||
             (b.ISBN != null && b.ISBN.Contains(term)) || b.BookAuthors.Any(x => x.Author.FullName.Contains(term)));
         if (genreId.HasValue) books = books.Where(b => b.GenreId == genreId.Value);
+        if (!string.IsNullOrWhiteSpace(author)) books = books.Where(b => b.BookAuthors.Any(x => x.Author.FullName.Contains(author.Trim())));
+        if (year.HasValue) books = books.Where(b => b.PublishedYear == year.Value);
         if (availableOnly) books = books.Where(b => b.Copies.Any(x => x.Status == "Available"));
         var total = await books.CountAsync();
         var lastPage = total == 0 ? 1 : 1 + (total - 1) / pageSize;
@@ -61,15 +65,13 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
         return book is null ? NotFound() : Ok(book);
     }
 
-    public sealed record ReservationRequest(string? CardNumber, int BookId);
+    public sealed record ReservationRequest(int BookId);
 
     // Tiếp nhận yêu cầu đặt trước sách khi đầu sách hết bản sao sẵn có.
     [HttpPost("reservations")]
+    [Authorize(Roles = "Reader")]
     public async Task<IActionResult> CreateReservation([FromBody] ReservationRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.CardNumber))
-            return BadRequest(new { error = "Vui lòng nhập số thẻ bạn đọc." });
-
         if (request.BookId <= 0)
             return BadRequest(new { error = "Mã sách không hợp lệ." });
 
@@ -86,18 +88,16 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
             await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT ReaderId, FullName, Status, ExpiryDate FROM Readers WHERE CardNumber = @card";
-        var pCard = cmd.CreateParameter();
-        pCard.ParameterName = "@card";
-        pCard.Value = request.CardNumber.Trim();
-        cmd.Parameters.Add(pCard);
+        cmd.CommandText = "SELECT ReaderId, FullName, Status, ExpiryDate FROM Readers WHERE ReaderId = @readerId";
+        var pCard = cmd.CreateParameter(); pCard.ParameterName = "@readerId";
+        pCard.Value = int.Parse(User.FindFirst("reader_id")!.Value); cmd.Parameters.Add(pCard);
 
         int readerId;
         string readerName;
         await using (var r = await cmd.ExecuteReaderAsync())
         {
             if (!await r.ReadAsync())
-                return NotFound(new { error = $"Không tìm thấy bạn đọc với số thẻ '{request.CardNumber}'." });
+                return NotFound(new { error = "Không tìm thấy hồ sơ bạn đọc." });
 
             readerId = r.GetInt32(0);
             readerName = r.GetString(1);
@@ -111,27 +111,26 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
                 return BadRequest(new { error = "Thẻ bạn đọc đã hết hạn sử dụng. Vui lòng gia hạn thẻ trước khi đặt sách." });
         }
 
-        await using (var checkCmd = conn.CreateCommand())
-        {
-            checkCmd.CommandText = "SELECT COUNT(*) FROM Reservations WHERE ReaderId = @rId AND BookId = @bId AND Status = 'Pending'";
-            var pr = checkCmd.CreateParameter(); pr.ParameterName = "@rId"; pr.Value = readerId; checkCmd.Parameters.Add(pr);
-            var pb = checkCmd.CreateParameter(); pb.ParameterName = "@bId"; pb.Value = request.BookId; checkCmd.Parameters.Add(pb);
-            var pendingCount = Convert.ToInt32(await checkCmd.ExecuteScalarAsync());
-            if (pendingCount > 0)
-                return Conflict(new { error = "Bạn đọc đã có yêu cầu đặt trước cho cuốn sách này đang chờ xử lý." });
-        }
-
         int reservationId;
         try
         {
-            await using var insCmd = conn.CreateCommand();
-            insCmd.CommandText = "INSERT INTO Reservations(ReaderId, BookId, RequestedAt, Status) OUTPUT INSERTED.ReservationId VALUES(@rId, @bId, SYSDATETIME(), 'Pending')";
-            var pr = insCmd.CreateParameter(); pr.ParameterName = "@rId"; pr.Value = readerId; insCmd.Parameters.Add(pr);
-            var pb = insCmd.CreateParameter(); pb.ParameterName = "@bId"; pb.Value = request.BookId; insCmd.Parameters.Add(pb);
-            reservationId = Convert.ToInt32(await insCmd.ExecuteScalarAsync());
+            await using var insert = conn.CreateCommand();
+            insert.CommandText =
+                "INSERT INTO Reservations(ReaderId,BookId,RequestedAt,Status) " +
+                "OUTPUT INSERTED.ReservationId VALUES(@readerId,@bookId,SYSDATETIME(),'Pending')";
+            var readerParameter = insert.CreateParameter();
+            readerParameter.ParameterName = "@readerId";
+            readerParameter.Value = readerId;
+            insert.Parameters.Add(readerParameter);
+            var bookParameter = insert.CreateParameter();
+            bookParameter.ParameterName = "@bookId";
+            bookParameter.Value = request.BookId;
+            insert.Parameters.Add(bookParameter);
+            reservationId = Convert.ToInt32(await insert.ExecuteScalarAsync());
         }
         catch (SqlException ex) when (ex.Number is 2601 or 2627)
         {
+            // The filtered unique index is the concurrency-safe check for Pending duplicates.
             return Conflict(new { error = "Bạn đọc đã có yêu cầu đặt trước cho sách này đang chờ xử lý." });
         }
 
@@ -143,7 +142,7 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
             readerName,
             status = "Pending",
             requestedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-            message = "Đặt trước sách thành công. Thư viện sẽ giữ sách và thông báo cho bạn ngay khi có bản sao được hoàn trả."
+            message = "Đã ghi nhận yêu cầu đặt trước. Bạn có thể theo dõi trạng thái trong mục Lịch sử mượn."
         });
     }
 }

@@ -4,8 +4,9 @@ Quy ước: `[x]` = đã thực sự chạy và có kết quả; `[ ]` = **chưa
 
 ## A. Đã chạy khi soạn bản cập nhật
 - [x] `dotnet build` project `Library.Domain` (offline): 0 lỗi.
-- [x] `dotnet run --project Tests/Library.Tests`: 20 kiểm tra đạt (LoanPolicy, PBKDF2, kho phiên).
-- [x] Handler xác thực phiên chạy thử trên Kestrel: không token → 401, token sai → 401, role Librarian → 200, role không hợp lệ → 403.
+- [x] `dotnet run --project Tests/Library.Tests`: 25 kiểm tra đạt (LoanPolicy, PBKDF2, session store qua fake repository).
+- [x] Build API với output riêng: 0 lỗi, 0 cảnh báo. Build thông thường bị khóa output bởi tiến trình `Library.Api` đang chạy; không dừng tiến trình của người dùng.
+- [ ] Kiểm thử API với SQL Server sau khi áp dụng migrations: không token/token sai → 401; role không hợp lệ → 403; token hợp lệ → 200.
 
 ### Kiểm thử demo ngày 19/11/2026
 
@@ -23,7 +24,7 @@ Luồng mượn và trả được kiểm tra qua API. Các mục về giao di�
 
 ### B1. Build
 - [ ] Mở `QuanLyThuVien.sln` bằng Visual Studio 2022, Restore, Build Solution: 0 lỗi.
-- [ ] `dotnet run --project Tests/Library.Tests` trên máy nhóm.
+- [x] `dotnet run --project Tests/Library.Tests`: 25 kiểm tra đạt trong phiên làm việc này.
 
 ### B2. API (Postman / file `.http`)
 - [ ] `POST /api/auth/login` đúng mật khẩu → 200 có `token`; sai → 401.
@@ -35,9 +36,14 @@ Luồng mượn và trả được kiểm tra qua API. Các mục về giao di�
 - [ ] Trả trễ (phạt = số ngày × `FinePerDay`), `Damaged`, `Lost` → trạng thái bản sao đúng.
 - [ ] CRUD sách, bản sao, bạn đọc, tác giả, thể loại, NXB: thêm/sửa/xóa, dữ liệu trùng (ISBN, mã bản sao) → 409, xóa dữ liệu đang được tham chiếu → 409.
 - [ ] `PUT /api/admin/catalog/books/{id}/authors` thay danh sách tác giả; mã tác giả không tồn tại → 409.
+- [ ] Gửi hai yêu cầu đặt trước đồng thời cho cùng thẻ và đầu sách: chỉ có tối đa một bản ghi Pending; yêu cầu còn lại nhận 409.
+- [ ] Gửi lại yêu cầu đặt trước sau khi đã có Pending: nhận 409; trạng thái khác Pending không bị chỉ mục này chặn.
+- [ ] Tạo phiên, restart API nhưng giữ nguyên SQL Server/database: token còn hạn vẫn dùng được; kiểm tra tương tự khi chạy hai API instance.
+- [ ] Đăng xuất, khóa/reset tài khoản nhân viên hoặc ngừng hoạt động thẻ: các phiên tương ứng bị thu hồi.
 
 ### B3. Cơ sở dữ liệu
-- [ ] Chạy script 01–06 theo thứ tự không lỗi; chạy lại 06 không tạo trùng.
+- [ ] Chạy scripts `01–04`, `07`, `08`, `10`; chạy lại migrations không tạo trùng hoặc lỗi.
+- [ ] Migration `07` dừng an toàn nếu đã có yêu cầu Pending trùng; dọn dữ liệu có kiểm soát rồi chạy lại.
 - [ ] Vi phạm CHECK (năm xuất bản, trạng thái bản sao), UNIQUE, khóa ngoại cho kết quả đúng.
 - [ ] Rà soát 3NF (đối chiếu báo cáo, mục 3.7–3.8).
 

@@ -22,36 +22,71 @@ public sealed class MainForm : Form
     private readonly HttpClient _api = new() { BaseAddress = ApiSettings.BaseUri };
     private readonly ComboBox _entity = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
     private readonly TextBox _search = new() { Width = 240, PlaceholderText = "Từ khóa tìm kiếm" };
+    private readonly ComboBox _genreFilter = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170 };
     private readonly DataGridView _grid = new() { Dock = DockStyle.Fill, ReadOnly = true, AutoGenerateColumns = true, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, SelectionMode = DataGridViewSelectionMode.FullRowSelect, MultiSelect = false };
-    private readonly ToolStripStatusLabel _status = new("Sẵn sàng");
+    private readonly ToolStripStatusLabel _status = new("Sẵn sàng") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly string _role;
+    private readonly string _username;
+    private bool _logoutRequested;
 
     public MainForm(string token, string username, string role)
     {
         _role = role;
+        _username = username;
         // Gắn token vào header mặc định để mọi API quản trị được xác thực ở phía máy chủ.
         _api.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        Text = $"Quản trị thư viện · {username} ({role})"; Width = 1220; Height = 760; StartPosition = FormStartPosition.CenterScreen;
+        Text = $"Quản trị thư viện · {username} ({role})"; Width = 1280; Height = 800; MinimumSize = new Size(980, 620); StartPosition = FormStartPosition.CenterScreen;
+        BackColor = Color.FromArgb(246, 248, 246);
         _entity.Items.AddRange(Entities.Cast<object>().ToArray()); _entity.DisplayMember = "Caption"; _entity.SelectedIndex = 0;
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 92, Padding = new Padding(10), WrapContents = true, AutoScroll = true };
+        _genreFilter.Items.AddRange(["Tất cả thể loại"]);
+        _genreFilter.SelectedIndex = 0;
+        var heading = new Panel { Dock = DockStyle.Top, Height = 76, Padding = new Padding(18, 12, 18, 8), BackColor = Color.White };
+        heading.Controls.Add(new Label { Text = "Không gian quản trị", AutoSize = true, Location = new Point(18, 10), Font = new Font("Segoe UI", 16, FontStyle.Bold), ForeColor = Color.FromArgb(24, 50, 75) });
+        heading.Controls.Add(new Label { Text = "Quản lý danh mục, bạn đọc và nghiệp vụ mượn trả", AutoSize = true, Location = new Point(20, 43), ForeColor = Color.DimGray });
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 102, Padding = new Padding(14, 12, 14, 10), WrapContents = true, AutoScroll = true, BackColor = Color.FromArgb(239, 244, 241) };
+        _entity.Width = 160; _search.Width = 200;
         var toolbarControls = new List<Control>
         {
-            new Label { Text = "Quản lý:", AutoSize = true, Padding = new Padding(0, 8, 4, 0) }, _entity, _search,
-            Button("Tìm kiếm", async () => await LoadRowsAsync()), Button("Tải lại", async () => await LoadRowsAsync()),
-            Button("Thêm", async () => await CreateAsync()), Button("Sửa", async () => await UpdateAsync()), Button("Xóa", async () => await DeleteAsync()),
+            Button("Trang chủ", OpenDashboardAsync),
+            new Label { Text = "Phân hệ:", AutoSize = true, Padding = new Padding(0, 8, 4, 0) }, _entity,
+            new Label { Text = "Tìm sách / ISBN / mã cuốn:", AutoSize = true, Padding = new Padding(0, 8, 4, 0) }, _search, _genreFilter,
+            Button("Tìm kiếm", async () => await LoadRowsAsync()), Button("Làm mới", async () => await LoadRowsAsync()),
+            Button("Thêm mới", async () => await CreateAsync()), Button("Chỉnh sửa", async () => await UpdateAsync()),
+            Button("Ngừng hoạt động", async () => await DeactivateAsync()), Button("Xóa vĩnh viễn", async () => await DeleteAsync()),
             Button("Tác giả của sách", async () => await EditAuthorsAsync()),
-            Button("Mượn / Trả", () => { using var form = new CirculationForm(_api); form.ShowDialog(this); return Task.CompletedTask; }),
-            Button("Dashboard", () => { using var form = new DashboardForm(_api); form.ShowDialog(this); return Task.CompletedTask; })
+            Button("Mượn / Trả", OpenCirculationAsync), Button("Báo cáo", OpenReportsAsync)
         };
+        var logout = Button("Đăng xuất", LogoutAsync);
+        logout.BackColor = Color.FromArgb(255, 242, 239);
+        logout.ForeColor = Color.FromArgb(150, 55, 45);
+        toolbarControls.Add(logout);
         if (_role.Equals("Admin", StringComparison.OrdinalIgnoreCase))
-            toolbarControls.Add(Button("Quản lý tài khoản", () => { using var form = new AccountsForm(_api); form.ShowDialog(this); return Task.CompletedTask; }));
+            toolbarControls.Add(Button("Tài khoản", () => { using var form = new AccountsForm(_api); form.ShowDialog(this); return Task.CompletedTask; }));
         toolbar.Controls.AddRange(toolbarControls.ToArray());
-        var statusBar = new StatusStrip(); statusBar.Items.Add(_status);
-        Controls.Add(_grid); Controls.Add(toolbar); Controls.Add(statusBar);
+        _grid.BackgroundColor = Color.White;
+        _grid.BorderStyle = BorderStyle.None;
+        _grid.RowHeadersVisible = false;
+        _grid.AllowUserToAddRows = false;
+        _grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
+        _grid.DefaultCellStyle.Padding = new Padding(5, 3, 5, 3);
+        _grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(231, 240, 235);
+        _grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(24, 50, 75);
+        _grid.EnableHeadersVisualStyles = false;
+        var gridHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14), BackColor = BackColor };
+        gridHost.Controls.Add(_grid);
+        var statusBar = new StatusStrip { BackColor = Color.White };
+        statusBar.Items.Add(_status);
+        Controls.Add(gridHost); Controls.Add(toolbar); Controls.Add(heading); Controls.Add(statusBar);
         _entity.SelectedIndexChanged += async (_, _) => await LoadRowsAsync();
+        _genreFilter.SelectedIndexChanged += async (_, _) => { if (Current.Key == "books") await LoadRowsAsync(); };
         _search.KeyDown += async (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await LoadRowsAsync(); } };
         Load += async (_, _) => await LoadRowsAsync();
-        FormClosing += async (_, _) => { try { await _api.PostAsync("api/auth/logout", null); } catch { /* Phiên vẫn tự hết hạn sau 8 giờ. */ } _api.Dispose(); };
+        Load += async (_, _) => await LoadGenresAsync();
+        FormClosing += async (_, _) =>
+        {
+            if (!_logoutRequested) await RevokeSessionAsync();
+            _api.Dispose();
+        };
     }
 
     private static Button Button(string text, Func<Task> action)
@@ -62,6 +97,60 @@ public sealed class MainForm : Form
 
     private Entity Current => (Entity)_entity.SelectedItem!;
 
+    private async Task LogoutAsync()
+    {
+        if (MessageBox.Show("Bạn muốn đăng xuất khỏi phiên làm việc hiện tại?", "Xác nhận đăng xuất",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+        _logoutRequested = true;
+        await RevokeSessionAsync();
+        DialogResult = DialogResult.OK;
+        Close();
+    }
+
+    private async Task RevokeSessionAsync()
+    {
+        try
+        {
+            using var response = await _api.PostAsync("api/auth/logout", null);
+            if (!response.IsSuccessStatusCode)
+                MessageBox.Show("Không xác nhận được việc thu hồi phiên. Hãy đóng ứng dụng nếu cần kết thúc phiên ngay.",
+                    "Đăng xuất chưa xác nhận", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        catch (HttpRequestException)
+        {
+            MessageBox.Show("Không kết nối được dịch vụ để xác nhận đăng xuất. Phiên sẽ tự hết hạn theo chính sách.",
+                "Không kết nối được dịch vụ", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private Task OpenDashboardAsync()
+    {
+        using var form = new DashboardForm(_api, _username, _role, OpenModule);
+        form.ShowDialog(this);
+        return Task.CompletedTask;
+    }
+
+    private Task OpenCirculationAsync()
+    {
+        using var form = new CirculationForm(_api);
+        form.ShowDialog(this);
+        return Task.CompletedTask;
+    }
+
+    private Task OpenReportsAsync()
+    {
+        using var form = new DashboardForm(_api, _username, _role, OpenModule, reportsOnly: true);
+        form.ShowDialog(this);
+        return Task.CompletedTask;
+    }
+
+    private void OpenModule(string key)
+    {
+        var index = Array.FindIndex(Entities, entity => entity.Key == key);
+        if (index >= 0) _entity.SelectedIndex = index;
+    }
+
     // Đọc bản ghi của danh mục đang chọn và gắn vào bảng tra cứu.
     private async Task LoadRowsAsync()
     {
@@ -69,11 +158,60 @@ public sealed class MainForm : Form
         {
             _status.Text = "Đang tải dữ liệu...";
             var url = $"api/admin/catalog/{Current.Key}?q={Uri.EscapeDataString(_search.Text.Trim())}";
+            if (Current.Key == "books" && _genreFilter.SelectedItem is GenreOption genre && genre.Id.HasValue)
+                url += $"&genreId={genre.Id.Value}";
             var rows = await _api.GetFromJsonAsync<List<Dictionary<string, JsonElement>>>(url) ?? [];
             _grid.DataSource = ToTable(rows);   // DataTable để lưới hiển thị đúng từng cột (không bind trực tiếp Dictionary)
-            _status.Text = $"Đã tải {rows.Count} bản ghi";
+            if (Current.Key == "books") ConfigureBookGrid();
+            else _genreFilter.Enabled = false;
+            _status.Text = rows.Count == 0 ? "Không tìm thấy dữ liệu phù hợp" : $"Sẵn sàng · {rows.Count} bản ghi";
         }
-        catch (Exception ex) { _status.Text = "Không tải được dữ liệu"; MessageBox.Show(ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        catch (HttpRequestException) { _status.Text = "Không kết nối được dịch vụ"; MessageBox.Show("Không thể tải dữ liệu từ API. Kiểm tra kết nối rồi thử lại.", "Không tải được dữ liệu", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        catch (System.Text.Json.JsonException) { _status.Text = "Dữ liệu phản hồi không hợp lệ"; MessageBox.Show("Dịch vụ trả về dữ liệu không đúng định dạng. Vui lòng thử lại sau.", "Lỗi dữ liệu", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+    }
+
+    private sealed record GenreOption(int? Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
+    private void ConfigureBookGrid()
+    {
+        _genreFilter.Enabled = true;
+        if (_grid.Columns.Contains("id")) _grid.Columns["id"].HeaderText = "Mã đầu sách";
+        SetColumn("title", "Tên sách"); SetColumn("isbn", "ISBN"); SetColumn("authors", "Tác giả");
+        SetColumn("genre", "Thể loại"); SetColumn("totalCopies", "Tổng cuốn");
+        SetColumn("borrowedCopies", "Đang mượn"); SetColumn("availableCopies", "Còn sẵn");
+        foreach (var hidden in new[] { "description", "genreId", "publisherId", "publisher", "publishedYear", "isActive" })
+            if (_grid.Columns.Contains(hidden)) _grid.Columns[hidden].Visible = false;
+        foreach (var column in _grid.Columns.Cast<DataGridViewColumn>())
+            if (column.Visible) column.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+    }
+
+    private void SetColumn(string key, string title)
+    {
+        if (_grid.Columns.Contains(key)) _grid.Columns[key].HeaderText = title;
+    }
+
+    private async Task LoadGenresAsync()
+    {
+        try
+        {
+            var rows = await _api.GetFromJsonAsync<List<Dictionary<string, JsonElement>>>("api/admin/catalog/genres") ?? [];
+            var options = new List<GenreOption> { new(null, "Tất cả thể loại") };
+            foreach (var row in rows)
+            {
+                if (row.TryGetValue("id", out var id) && id.TryGetInt32(out var key) &&
+                    row.TryGetValue("name", out var name) && name.ValueKind == JsonValueKind.String)
+                    options.Add(new GenreOption(key, name.GetString() ?? ""));
+            }
+            _genreFilter.DataSource = options;
+            _genreFilter.SelectedIndex = 0;
+        }
+        catch (HttpRequestException)
+        {
+            _status.Text = "Không tải được bộ lọc thể loại";
+        }
     }
 
     // Mở biểu mẫu nhập, gửi POST và tải lại danh sách sau khi tạo thành công.
@@ -93,12 +231,35 @@ public sealed class MainForm : Form
         await SendAsync(() => _api.PutAsJsonAsync($"api/admin/catalog/{Current.Key}/{id}", editor.Values), "Đã cập nhật bản ghi.");
     }
 
-    // Hỏi xác nhận trước khi xóa; sách, thể loại và bạn đọc được ngừng hoạt động để giữ lịch sử.
+    // Ngừng phục vụ nhưng giữ hồ sơ và lịch sử nghiệp vụ.
+    private async Task DeactivateAsync()
+    {
+        if (Current.Key is not ("books" or "copies" or "readers" or "genres"))
+        {
+            MessageBox.Show("Danh mục này không hỗ trợ ngừng hoạt động. Hãy dùng Xóa vĩnh viễn nếu cần.",
+                "Không hỗ trợ thao tác", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (!SelectedId(out var id, out _)) return;
+
+        var label = Current.Key == "readers" ? "bạn đọc" : "bản ghi";
+        if (MessageBox.Show($"Ngừng hoạt động {label} đang chọn? Hồ sơ và lịch sử sẽ được giữ lại.",
+                "Xác nhận ngừng hoạt động", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            return;
+
+        await SendAsync(() => _api.PutAsync($"api/admin/catalog/{Current.Key}/{id}/deactivate", null),
+            "Đã ngừng hoạt động bản ghi.");
+    }
+
+    // Xóa cứng bản ghi; các khóa ngoại sẽ chặn xóa nếu bản ghi đã có lịch sử tham chiếu.
     private async Task DeleteAsync()
     {
         if (!SelectedId(out var id, out _)) return;
-        if (MessageBox.Show("Xóa/ngừng hoạt động bản ghi đang chọn?", "Xác nhận", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-        await SendAsync(() => _api.DeleteAsync($"api/admin/catalog/{Current.Key}/{id}"), "Đã xử lý xóa bản ghi.");
+        if (MessageBox.Show("XÓA VĨNH VIỄN bản ghi đang chọn? Thao tác này không thể hoàn tác.",
+                "Xác nhận xóa vĩnh viễn", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            return;
+        await SendAsync(() => _api.DeleteAsync($"api/admin/catalog/{Current.Key}/{id}/permanent"),
+            "Đã xóa vĩnh viễn bản ghi.");
     }
 
     // Kiểm tra phản hồi HTTP và hiển thị thông báo nghiệp vụ trả về từ API.
@@ -107,10 +268,35 @@ public sealed class MainForm : Form
         try
         {
             using var response = await request();
-            if (!response.IsSuccessStatusCode) { var body = await response.Content.ReadAsStringAsync(); MessageBox.Show(body, "Không thể lưu", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = await ReadApiErrorAsync(response);
+                MessageBox.Show(message, "Không thể lưu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             _status.Text = success; await LoadRowsAsync();
         }
-        catch (Exception ex) { MessageBox.Show(ex.Message, "Lỗi kết nối", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (HttpRequestException) { MessageBox.Show("Chưa nhận được xác nhận từ dịch vụ. Kiểm tra dữ liệu hiện tại trước khi gửi lại.", "Lỗi kết nối", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (System.Text.Json.JsonException) { MessageBox.Show("Dịch vụ trả về dữ liệu không hợp lệ. Vui lòng thử lại sau.", "Lỗi dữ liệu", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    private static async Task<string> ReadApiErrorAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
+                return error.GetString() ?? "Không thể hoàn tất thao tác. Vui lòng kiểm tra dữ liệu.";
+        }
+        catch (JsonException) { }
+
+        return response.StatusCode switch
+        {
+            System.Net.HttpStatusCode.Unauthorized => "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+            System.Net.HttpStatusCode.Forbidden => "Tài khoản không có quyền thực hiện thao tác này.",
+            System.Net.HttpStatusCode.Conflict or System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.UnprocessableEntity => "Dữ liệu không hợp lệ hoặc đã thay đổi. Vui lòng tải lại và kiểm tra.",
+            _ => $"Không thể hoàn tất thao tác (mã HTTP {(int)response.StatusCode})."
+        };
     }
 
     private bool SelectedId(out int id, out Dictionary<string, object?> values)
@@ -269,7 +455,13 @@ internal sealed class RecordEditorForm : Form
                 if (!DateTime.TryParse(text, out var date)) return Invalid(_entity.Labels[i] + " không hợp lệ.");
                 Values[key] = date.ToString("yyyy-MM-dd");
             }
-            else Values[key] = text;
+            else
+            {
+                if (_entity.Key == "readers" && key == "phone" &&
+                    (text.Length != 10 || text.Any(character => character is < '0' or > '9')))
+                    return Invalid("Số điện thoại phải gồm đúng 10 chữ số.");
+                Values[key] = text;
+            }
         }
         return true;
     }
