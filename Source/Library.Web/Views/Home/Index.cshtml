@@ -8,6 +8,12 @@
     var pageNumber = ViewBag.Page is int currentPage ? currentPage : 1;
     var total = ViewBag.Total is int resultCount ? resultCount : 0;
     var coverIndex = 0;
+    var catalogTitle = availableOnly ? "Sách đang có sẵn" : selectedSort == "newest" ? "Sách theo năm xuất bản mới nhất" : "Khám phá sách";
+    var catalogDescription = availableOnly
+        ? "Chỉ hiển thị đầu sách có ít nhất một bản sao sẵn sàng để mượn."
+        : selectedSort == "newest"
+            ? "Danh mục được xếp theo năm xuất bản giảm dần; năm xuất bản được hiển thị trên từng bìa sách."
+            : "Tìm sách theo tên, tác giả, ISBN hoặc thể loại; mở chi tiết để mượn hay đặt trước.";
 }
 
 <section class="hero-library rounded-4 mb-4">
@@ -69,7 +75,7 @@
 
 <section aria-labelledby="catalog-heading">
     <div class="section-heading catalog-heading">
-        <div><span class="section-kicker">BỘ SƯU TẬP</span><h2 id="catalog-heading">@(string.IsNullOrWhiteSpace(query) ? "Sách trong thư viện" : $"Kết quả cho “{query}”")</h2></div>
+        <div><span class="section-kicker">@catalogTitle</span><h2 id="catalog-heading">@(string.IsNullOrWhiteSpace(query) ? catalogTitle : $"Kết quả cho “{query}”")</h2><p class="text-muted mb-0">@catalogDescription</p></div>
         <span class="section-note">Trang @pageNumber · @total đầu sách</span>
     </div>
 
@@ -93,7 +99,7 @@
                             <span class="cover-emblem">✳</span>
                         </a>
                         <div class="book-card-body">
-                            <div class="book-meta-top"><span class="genre-label">@book.genre</span><span class="availability @(book.available > 0 ? "in-stock" : "out-stock")">@(book.available > 0 ? "Còn sách" : "Đang được mượn")</span></div>
+                            <div class="book-meta-top"><span class="genre-label">@book.genre</span><span class="availability @(book.available > 0 ? "in-stock" : "out-stock")">@(book.available > 0 ? "Còn sách" : "Hết bản · xem để đặt trước")</span></div>
                             <h3><a asp-action="Details" asp-route-id="@book.id">@book.title</a></h3>
                             <p class="book-author">@(book.authors.Count == 0 ? "Chưa cập nhật tác giả" : string.Join(", ", book.authors))</p>
                             <div class="book-card-footer"><span>@(book.year?.ToString() ?? "Chưa rõ năm")</span><span><strong>@book.available</strong> bản có sẵn</span></div>

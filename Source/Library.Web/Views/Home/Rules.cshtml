@@ -1,5 +1,55 @@
-@{ ViewData["Title"] = "Hướng dẫn bạn đọc"; }
-<section class="hero p-4 p-md-5 rounded-4"><p class="eyebrow">DÀNH CHO BẠN ĐỌC</p><h1>Hướng dẫn sử dụng thư viện</h1><p>Tra cứu trên website trước khi đến quầy để kiểm tra thông tin và tình trạng bản sao.</p></section>
-<div class="row g-3 mt-1"><div class="col-md-4"><article class="card h-100"><div class="card-body"><h2 class="h5">1. Tìm sách</h2><p>Dùng ô tìm kiếm với tên sách, tên tác giả hoặc ISBN. Bộ lọc thể loại giúp thu hẹp danh mục.</p></div></article></div>
-<div class="col-md-4"><article class="card h-100"><div class="card-body"><h2 class="h5">2. Kiểm tra chi tiết</h2><p>Mở trang chi tiết để xem tác giả, nhà xuất bản, thể loại và số bản sao đang sẵn có.</p></div></article></div>
-<div class="col-md-4"><article class="card h-100"><div class="card-body"><h2 class="h5">3. Mượn và trả</h2><p>Mang thẻ bạn đọc đến quầy thủ thư để đăng ký mượn hoặc trả. Thông tin trên website hỗ trợ tra cứu, không thay thế xác nhận giao dịch tại quầy.</p></div></article></div></div>
+@{
+    ViewData["Title"] = "Hướng dẫn bạn đọc";
+}
+
+<section class="hero p-4 p-md-5 rounded-4">
+    <p class="eyebrow">DÀNH CHO BẠN ĐỌC</p>
+    <h1>Hướng dẫn sử dụng thư viện</h1>
+    <p>Tạo tài khoản để gửi yêu cầu mượn, đặt trước sách và theo dõi hoạt động thẻ của bạn.</p>
+</section>
+
+<div class="row g-3 mt-1">
+    <div class="col-md-6 col-xl-4">
+        <article class="card h-100"><div class="card-body">
+            <h2 class="h5">1. Tạo tài khoản và đăng nhập</h2>
+            <p>Đăng ký bằng tên đăng nhập và mật khẩu. Dùng chính hai thông tin đó để đăng nhập; số thẻ bạn đọc được cấp sau khi đăng ký dùng để nhận diện thẻ tại thư viện.</p>
+            <a asp-action="RegisterReader" class="btn btn-outline-primary">Đăng ký bạn đọc</a>
+        </div></article>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <article class="card h-100"><div class="card-body">
+            <h2 class="h5">2. Tìm và xem sách</h2>
+            <p>Tìm theo tên sách, tác giả hoặc ISBN. Trang chi tiết hiển thị năm xuất bản, thể loại, nhà xuất bản và số bản sao đang sẵn có.</p>
+            <a asp-action="Index" class="btn btn-outline-primary">Khám phá sách</a>
+        </div></article>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <article class="card h-100"><div class="card-body">
+            <h2 class="h5">3. Gửi yêu cầu mượn</h2>
+            <p>Khi sách còn bản, chọn <strong>Yêu cầu mượn sách</strong>. Thủ thư kiểm tra và duyệt; khi duyệt, hệ thống lập phiếu mượn và cập nhật hạn trả trong tài khoản của bạn.</p>
+            <p class="mb-0">Mặc định, mỗi thẻ được mượn tối đa 5 cuốn trong 14 ngày. Quy định có thể được thư viện điều chỉnh.</p>
+        </div></article>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <article class="card h-100"><div class="card-body">
+            <h2 class="h5">4. Đặt trước sách</h2>
+            <p>Chọn <strong>Đặt trước sách</strong> ở trang chi tiết để xếp hàng nhận sách, dù hiện còn bản hay đã hết bản. Yêu cầu ở trạng thái chờ cho đến khi thủ thư giữ được một bản.</p>
+            <p class="mb-0">Khi thủ thư chuyển yêu cầu sang có thể nhận, sách được giữ trong 3 ngày. Xem trạng thái hoặc hủy yêu cầu tại trang tài khoản.</p>
+        </div></article>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <article class="card h-100"><div class="card-body">
+            <h2 class="h5">5. Trả sách và tiền phạt</h2>
+            <p>Mang sách đến quầy để thủ thư ghi nhận trả và kiểm tra tình trạng. Trước hạn trả, bạn có thể gia hạn một lần trong trang tài khoản nếu sách chưa quá hạn và không có yêu cầu đặt trước đang chờ.</p>
+            <p>Nếu trả trễ, tiền phạt được tính theo số ngày quá hạn; mức mặc định hiện tại là 1.000đ/ngày.</p>
+            <p class="mb-0">Nếu sách hỏng hoặc mất, thủ thư nhập phí sửa chữa/thay thế theo quy định thư viện. Lịch sử mượn hiển thị riêng phạt trễ, bồi thường và số đã thanh toán; thông báo ghi nhận thanh toán hiển thị trong tài khoản. Việc thanh toán được thủ thư ghi nhận tại quầy.</p>
+        </div></article>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <article class="card h-100"><div class="card-body">
+            <h2 class="h5">6. Theo dõi tài khoản</h2>
+            <p>Trang tài khoản hiển thị số thẻ, hạn thẻ, lịch sử mượn, khoản phạt, thông báo và các yêu cầu mượn/đặt trước. Bạn cũng có thể đổi mật khẩu tại đây.</p>
+            <a asp-action="ReaderLogin" class="btn btn-outline-primary">Đăng nhập bạn đọc</a>
+        </div></article>
+    </div>
+</div>

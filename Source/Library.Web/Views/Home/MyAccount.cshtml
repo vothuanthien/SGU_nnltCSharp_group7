@@ -1,0 +1,67 @@
+@model Library.Web.Controllers.ReaderPortalVm
+@{
+    ViewData["Title"] = "Tài khoản bạn đọc";
+}
+<section class="reader-lookup-page">
+    <span class="section-kicker">CỔNG BẠN ĐỌC</span>
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div><h1 class="mt-2">Xin chào, @Model.profile.fullName</h1><p class="text-muted">Thông tin thẻ, lịch sử mượn và yêu cầu đặt trước của bạn.</p></div>
+        <form asp-action="ReaderLogout" method="post">@Html.AntiForgeryToken()<button class="btn btn-outline-secondary">Đăng xuất</button></form>
+    </div>
+    @if (TempData["PortalSuccess"] is string success) { <div class="alert alert-success">@success</div> }
+    @if (TempData["PortalError"] is string error) { <div class="alert alert-warning">@error</div> }
+    <section class="reader-lookup-result mb-4">
+        <div class="reader-summary">
+            <div><span>Số thẻ</span><strong>@Model.profile.cardNumber</strong></div>
+            <div><span>Tên đăng nhập</span><strong>@Model.profile.username</strong></div>
+            <div><span>Mã bạn đọc</span><strong>@Model.profile.readerCode</strong></div>
+            <div><span>Hạn thẻ</span><strong>@Model.profile.expiryDate</strong></div>
+            <div><span>Trạng thái</span><strong>@(Model.profile.status == "Active" ? "Đang hoạt động" : "Tạm khóa")</strong></div>
+        </div>
+    </section>
+
+    <div class="section-heading"><div><span class="section-kicker">CẬP NHẬT</span><h2>Thông báo</h2></div><span class="section-note">@Model.notifications.Count thông báo</span></div>
+    @if (Model.notifications.Count == 0) { <div class="reader-lookup-result text-muted mb-4">Chưa có thông báo mới.</div> }
+    else
+    {
+        <div class="reader-lookup-result mb-4"><ul class="list-group list-group-flush">
+        @foreach (var notification in Model.notifications) { <li class="list-group-item d-flex justify-content-between align-items-start gap-3"><div><strong>@(notification.isRead ? "" : "Mới · ")</strong>@notification.message <small class="d-block text-muted">@notification.createdAt</small></div>@if (!notification.isRead) { <form asp-action="MarkNotificationRead" method="post"><input type="hidden" name="id" value="@notification.notificationId" />@Html.AntiForgeryToken()<button class="btn btn-sm btn-outline-secondary">Đã đọc</button></form> }</li> }
+        </ul></div>
+    }
+
+    <div class="section-heading"><div><span class="section-kicker">THEO DÕI</span><h2>Lịch sử mượn</h2></div><span class="section-note">@Model.loans.Count lượt bản sao</span></div>
+    @if (Model.loans.Count == 0) { <div class="reader-lookup-result text-muted">Bạn chưa có lịch sử mượn sách.</div> }
+    else
+    {
+        <div class="table-responsive reader-lookup-result"><table class="table table-hover align-middle mb-0"><thead><tr><th>Sách</th><th>Mã cuốn</th><th>Ngày mượn</th><th>Hạn trả</th><th>Ngày trả</th><th>Gia hạn</th><th>Phạt quá hạn</th><th>Bồi thường</th><th>Tổng khoản phải thu</th><th>Đã thanh toán</th><th>Trạng thái</th></tr></thead><tbody>
+        @foreach (var loan in Model.loans) { <tr><td>@loan.title</td><td>@loan.copyCode</td><td>@loan.loanDate</td><td>@loan.dueDate</td><td>@(loan.returnedAt ?? "Chưa trả")</td><td>@if (loan.canRenew) { <form asp-action="RenewLoan" method="post"><input type="hidden" name="id" value="@loan.loanDetailId" />@Html.AntiForgeryToken()<button class="btn btn-sm btn-outline-primary">Gia hạn</button></form> } else { <span>@(loan.renewalCount > 0 ? "Đã gia hạn" : "—")</span> }</td><td>@loan.overdueFine.ToString("N0") đ</td><td>@loan.compensationAmount.ToString("N0") đ</td><td>@loan.fineAmount.ToString("N0") đ</td><td>@loan.paidAmount.ToString("N0") đ</td><td>@(loan.status == "Borrowed" ? "Đang mượn" : "Đã trả")</td></tr> }
+        </tbody></table></div>
+    }
+
+    <div class="section-heading"><div><span class="section-kicker">BẢO MẬT</span><h2>Đổi mật khẩu</h2></div></div>
+    <form asp-action="ChangeReaderPassword" method="post" class="reader-lookup-result mb-4" style="max-width:620px">
+        @Html.AntiForgeryToken()
+        <div class="mb-3"><label class="form-label" for="currentPassword">Mật khẩu hiện tại</label><input id="currentPassword" name="currentPassword" type="password" class="form-control" autocomplete="current-password" required /></div>
+        <div class="mb-3"><label class="form-label" for="newPassword">Mật khẩu mới (ít nhất 8 ký tự)</label><input id="newPassword" name="newPassword" type="password" class="form-control" autocomplete="new-password" minlength="8" required /></div>
+        <div class="mb-3"><label class="form-label" for="confirmPassword">Nhập lại mật khẩu mới</label><input id="confirmPassword" name="confirmPassword" type="password" class="form-control" autocomplete="new-password" minlength="8" required /></div>
+        <button class="btn btn-outline-primary">Đổi mật khẩu</button>
+    </form>
+
+    <div class="section-heading"><div><span class="section-kicker">THEO DÕI</span><h2>Yêu cầu mượn</h2></div><span class="section-note">@Model.loanRequests.Count yêu cầu</span></div>
+    @if (Model.loanRequests.Count == 0) { <div class="reader-lookup-result text-muted">Bạn chưa gửi yêu cầu mượn sách nào.</div> }
+    else
+    {
+        <div class="table-responsive reader-lookup-result"><table class="table table-hover align-middle mb-0"><thead><tr><th>Sách</th><th>Gửi lúc</th><th>Trạng thái</th><th>Bản sao</th><th>Mã phiếu</th><th>Ghi chú</th><th></th></tr></thead><tbody>
+        @foreach (var request in Model.loanRequests) { <tr><td>@request.title</td><td>@request.requestedAt</td><td>@(request.status switch { "Requested" => "Đang chờ thủ thư", "Approved" => "Đã duyệt", "Rejected" => "Bị từ chối", "Cancelled" => "Đã hủy", _ => request.status })</td><td>@(request.copyCode ?? "—")</td><td>@(request.loanCode ?? "—")</td><td>@(request.rejectionReason ?? "—")</td><td>@if (request.status == "Requested") { <form asp-action="CancelLoanRequest" method="post"><input type="hidden" name="id" value="@request.requestId" />@Html.AntiForgeryToken()<button class="btn btn-sm btn-outline-danger">Hủy</button></form> }</td></tr> }
+        </tbody></table></div>
+    }
+
+    <div class="section-heading"><div><span class="section-kicker">YÊU CẦU</span><h2>Đặt trước sách</h2></div><span class="section-note">@Model.reservations.Count yêu cầu</span></div>
+    @if (Model.reservations.Count == 0) { <div class="reader-lookup-result text-muted">Bạn chưa có yêu cầu đặt trước nào.</div> }
+    else
+    {
+        <div class="table-responsive reader-lookup-result"><table class="table table-hover align-middle mb-0"><thead><tr><th>Sách</th><th>Gửi lúc</th><th>Trạng thái</th><th>Bản sao giữ</th><th>Hạn nhận</th><th></th></tr></thead><tbody>
+        @foreach (var reservation in Model.reservations) { <tr><td>@reservation.title</td><td>@reservation.requestedAt</td><td>@(reservation.status switch { "Pending" => "Đang chờ", "Ready" => "Có thể đến nhận", "Fulfilled" => "Đã nhận", "Cancelled" => "Đã hủy", "Expired" => "Hết hạn", _ => reservation.status })</td><td>@(reservation.copyCode ?? "—")</td><td>@(reservation.holdUntil ?? "—")</td><td>@if (reservation.status is "Pending" or "Ready") { <form asp-action="CancelReservation" method="post"><input type="hidden" name="id" value="@reservation.reservationId" />@Html.AntiForgeryToken()<button class="btn btn-sm btn-outline-danger">Hủy</button></form> }</td></tr> }
+        </tbody></table></div>
+    }
+</section>

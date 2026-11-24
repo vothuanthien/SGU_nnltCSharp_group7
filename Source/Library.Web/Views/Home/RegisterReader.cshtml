@@ -1,0 +1,72 @@
+@model Library.Web.Controllers.ReaderRegistrationVm
+@{
+    ViewData["Title"] = "Đăng ký bạn đọc";
+}
+
+<section class="reader-lookup-page">
+    <span class="section-kicker">DỊCH VỤ BẠN ĐỌC</span>
+    <h1 class="mt-2">Đăng ký thẻ thư viện</h1>
+    <p class="text-muted">Tạo hồ sơ và mật khẩu để đăng nhập, xem lịch sử mượn và theo dõi yêu cầu đặt trước.</p>
+
+    @if (Model.Result is null)
+    {
+        <form asp-action="RegisterReader" method="post" class="reader-lookup-form">
+            @Html.AntiForgeryToken()
+            <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+            @if (!string.IsNullOrWhiteSpace(Model.Error))
+            {
+                <div class="alert alert-warning" role="alert">@Model.Error</div>
+            }
+            <div class="mb-3">
+                <label asp-for="Username" class="form-label">Tên đăng nhập <span class="text-danger">*</span></label>
+                <input asp-for="Username" class="form-control" minlength="3" maxlength="80" autocomplete="username" required />
+                <span asp-validation-for="Username" class="text-danger"></span>
+                <small class="form-text">Dùng chữ không dấu, số, dấu chấm, gạch ngang hoặc gạch dưới.</small>
+            </div>
+            <div class="mb-3">
+                <label asp-for="FullName" class="form-label">Họ và tên <span class="text-danger">*</span></label>
+                <input asp-for="FullName" class="form-control" maxlength="200" autocomplete="name" required />
+                <span asp-validation-for="FullName" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="Email" class="form-label">Email</label>
+                <input asp-for="Email" class="form-control" type="email" maxlength="254" autocomplete="email" />
+                <span asp-validation-for="Email" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="Phone" class="form-label">Số điện thoại</label>
+                <input asp-for="Phone" class="form-control" maxlength="30" autocomplete="tel" />
+                <span asp-validation-for="Phone" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="Password" class="form-label">Mật khẩu <span class="text-danger">*</span></label>
+                <input asp-for="Password" class="form-control" type="password" minlength="8" maxlength="100" autocomplete="new-password" required />
+                <span asp-validation-for="Password" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="ConfirmPassword" class="form-label">Nhập lại mật khẩu <span class="text-danger">*</span></label>
+                <input asp-for="ConfirmPassword" class="form-control" type="password" autocomplete="new-password" required />
+                <span asp-validation-for="ConfirmPassword" class="text-danger"></span>
+            </div>
+            <button class="btn btn-primary" type="submit">Tạo thẻ bạn đọc</button>
+        </form>
+    }
+    else
+    {
+        <section class="reader-lookup-result mt-4" aria-live="polite">
+            <div class="alert alert-success">Đăng ký thành công. Hồ sơ đã lưu vào SQL và thủ thư có thể xem trong WinForms.</div>
+            <div class="reader-summary">
+                <div><span>Họ tên</span><strong>@Model.Result.fullName</strong></div>
+                <div><span>Số thẻ thư viện</span><strong>@Model.Result.cardNumber</strong></div>
+                <div><span>Mã bạn đọc</span><strong>@Model.Result.readerCode</strong></div>
+                <div><span>Thẻ có hiệu lực đến</span><strong>@Model.Result.expiryDate</strong></div>
+            </div>
+            <p class="text-muted mt-3 mb-0">Tên đăng nhập của bạn là <strong>@Model.Result.username</strong>. Dùng tên này và mật khẩu vừa tạo để đăng nhập. Số thẻ bên dưới dùng khi mượn/trả sách.</p>
+            <a asp-action="ReaderLogin" class="btn btn-outline-primary mt-3">Đăng nhập bạn đọc</a>
+        </section>
+    }
+</section>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

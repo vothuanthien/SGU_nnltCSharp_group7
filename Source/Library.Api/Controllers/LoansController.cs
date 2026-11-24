@@ -71,6 +71,8 @@ public sealed class LoansController(DbFactory db, ILogger<LoansController> logge
                 await detail.ExecuteNonQueryAsync();
             }
 
+            await ReaderNotificationStore.AuditAsync(connection,tx,staff,"Loan.Created","Loan",loanId.ToString());
+
             await tx.CommitAsync();
             return Ok(new { loanId, loanCode, copies = copyCodes.Length, loanDays = policy.LoanDays });
         }

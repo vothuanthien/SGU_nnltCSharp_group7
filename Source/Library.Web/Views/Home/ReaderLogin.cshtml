@@ -1,0 +1,21 @@
+@model Library.Web.Controllers.ReaderLoginVm
+@{
+    ViewData["Title"] = "Đăng nhập bạn đọc";
+}
+<section class="reader-lookup-page">
+    <span class="section-kicker">CỔNG BẠN ĐỌC</span>
+    <h1 class="mt-2">Đăng nhập</h1>
+    <p class="text-muted">Dùng tên đăng nhập và mật khẩu đã tạo khi đăng ký.</p>
+    <form asp-action="ReaderLogin" method="post" class="reader-lookup-form">
+        @Html.AntiForgeryToken()
+        <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+        @if (!string.IsNullOrWhiteSpace(Model.Error)) { <div class="alert alert-warning">@Model.Error</div> }
+        @if (TempData["ReservationError"] is string error) { <div class="alert alert-info">@error</div> }
+        <input asp-for="ReturnUrl" type="hidden" />
+        <div class="mb-3"><label asp-for="Username" class="form-label">Tên đăng nhập</label><input asp-for="Username" class="form-control" maxlength="80" autocomplete="username" required /><span asp-validation-for="Username" class="text-danger"></span></div>
+        <div class="mb-3"><label asp-for="Password" class="form-label">Mật khẩu</label><input asp-for="Password" class="form-control" type="password" autocomplete="current-password" required /><span asp-validation-for="Password" class="text-danger"></span></div>
+        <button class="btn btn-primary" type="submit">Đăng nhập</button>
+        <a asp-action="RegisterReader" class="btn btn-link">Chưa có thẻ? Đăng ký</a>
+    </form>
+</section>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

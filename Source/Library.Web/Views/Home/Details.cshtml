@@ -27,7 +27,7 @@
 
         <div class="availability-panel @(Model.available > 0 ? "" : "empty")">
             <span aria-hidden="true">@(Model.available > 0 ? "✓" : "–")</span>
-            <div><strong>@(Model.available > 0 ? $"{Model.available} bản sao đang sẵn có" : "Hiện chưa có bản sao sẵn sàng")</strong><span>Tình trạng được cập nhật từ danh mục thư viện.</span></div>
+            <div><strong>@(Model.available > 0 ? $"{Model.available} bản sao đang sẵn có" : "Hiện chưa có bản sao sẵn sàng")</strong><span>@(Model.available > 0 ? "Bạn có thể gửi yêu cầu mượn hoặc đặt trước một bản để nhận tại thư viện." : "Bạn có thể đặt trước để xếp hàng chờ bản sao được trả.")</span></div>
         </div>
 
         @if (TempData["ReservationSuccess"] is string success)
@@ -38,17 +38,41 @@
         {
             <div class="alert alert-warning mt-3" role="alert">@error</div>
         }
-        @if (Model.available == 0)
+        @if (TempData["LoanRequestSuccess"] is string loanSuccess)
+        {
+            <div class="alert alert-success mt-3" role="status">@loanSuccess</div>
+        }
+        @if (TempData["LoanRequestError"] is string loanError)
+        {
+            <div class="alert alert-warning mt-3" role="alert">@loanError</div>
+        }
+        @if (Model.available > 0)
+        {
+            @if (Context.Session.GetString("ReaderToken") is not null)
+            {
+                <form asp-action="RequestLoan" asp-route-id="@Model.id" method="post" class="reservation-form mt-3">
+                    @Html.AntiForgeryToken()
+                    <p class="mb-2">Muốn mượn ngay? Gửi yêu cầu để thủ thư xác nhận bản sao và lập phiếu.</p>
+                    <button type="submit" class="btn btn-primary">Yêu cầu mượn sách</button>
+                </form>
+            }
+            else
+            {
+                <div class="reservation-form mt-3"><p class="mb-2">Đăng nhập để gửi yêu cầu mượn sách này.</p><a asp-action="ReaderLogin" asp-route-returnUrl="@Url.Action("Details", new { id = Model.id })" class="btn btn-primary">Đăng nhập để mượn</a></div>
+            }
+        }
+        @if (Context.Session.GetString("ReaderToken") is not null)
         {
             <form asp-action="Reserve" asp-route-id="@Model.id" method="post" class="reservation-form mt-3">
                 @Html.AntiForgeryToken()
-                <label for="reservation-card" class="form-label">Đặt trước bằng số thẻ thư viện</label>
-                <div class="input-group">
-                    <input id="reservation-card" name="cardNumber" class="form-control" maxlength="30" autocomplete="off" required placeholder="Nhập số thẻ của bạn" />
-                    <button type="submit" class="btn btn-outline-primary">Đặt trước</button>
-                </div>
-                <small class="form-text">Thẻ phải đang hoạt động và chưa hết hạn. Mỗi thẻ chỉ có một yêu cầu chờ cho đầu sách này.</small>
+                <p class="mb-2">Muốn giữ sách để đến nhận tại thư viện? Đặt trước sẽ giữ bản trong 3 ngày sau khi thủ thư xác nhận.</p>
+                <button type="submit" class="btn btn-outline-primary">Đặt trước sách</button>
+                <small class="form-text">@(Model.available > 0 ? "Có thể đặt trước dù sách đang còn bản; thủ thư sẽ giữ một bản cho bạn." : "Bạn sẽ được xếp hàng chờ đến khi có bản sao được trả.") Mỗi thẻ chỉ có một yêu cầu đang hoạt động cho mỗi đầu sách.</small>
             </form>
+        }
+        else
+        {
+            <div class="reservation-form mt-3"><p class="mb-2">Đăng nhập bằng tài khoản bạn đọc để gửi yêu cầu mượn hoặc đặt trước sách.</p><a asp-action="ReaderLogin" asp-route-returnUrl="@Url.Action("Details", new { id = Model.id })" class="btn btn-outline-primary">Đăng nhập để đặt trước</a></div>
         }
 
         <section class="description-block">
