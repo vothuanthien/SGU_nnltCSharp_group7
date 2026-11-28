@@ -1,56 +1,58 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace Library.Api.Security;
 
-/// <summary>Lưu phiên quản trị ngắn hạn trong bộ nhớ của API.</summary>
-public sealed class AdminSessionStore
+public interface IAdminSessionRepository
+{
+    Task SaveAsync(byte[] tokenHash, AdminSession session, CancellationToken cancellationToken);
+    Task<AdminSession?> FindAsync(byte[] tokenHash, CancellationToken cancellationToken);
+    Task DeleteAsync(byte[] tokenHash, CancellationToken cancellationToken);
+    Task DeleteUserSessionsAsync(string username, CancellationToken cancellationToken);
+}
+
+/// <summary>Quản lý phiên bearer có thời hạn; dữ liệu phiên được lưu trong kho dùng chung.</summary>
+public sealed class AdminSessionStore(IAdminSessionRepository repository)
 {
     public const string ContextItemKey = "Library.AdminSession";
     private static readonly TimeSpan SessionLifetime = TimeSpan.FromHours(8);
-    private readonly ConcurrentDictionary<string, AdminSession> _sessions = new();
 
-    /// <summary>Tạo bearer token ngẫu nhiên, không chứa username hay role bên trong.</summary>
-    public (string Token, AdminSession Session) Create(string username, string role)
+    /// <summary>Tạo bearer token ngẫu nhiên; chỉ hash token được gửi tới kho phiên.</summary>
+    public async Task<(string Token, AdminSession Session)> CreateAsync(
+        string username, string role, int? readerId = null, CancellationToken cancellationToken = default)
     {
         var token = Base64Url(RandomNumberGenerator.GetBytes(32));
-        var session = new AdminSession(username, role, DateTimeOffset.UtcNow.Add(SessionLifetime));
-        _sessions[token] = session;
+        var session = new AdminSession(username, role, DateTimeOffset.UtcNow.Add(SessionLifetime), readerId);
+        await repository.SaveAsync(HashToken(token), session, cancellationToken);
         return (token, session);
     }
 
-    /// <summary>Trả về phiên còn hạn; token hết hạn bị xóa ngay khi được kiểm tra.</summary>
-    public bool TryGet(string token, out AdminSession session)
+    /// <summary>Trả về phiên còn hạn; phiên hết hạn bị xóa khỏi kho.</summary>
+    public async Task<AdminSession?> TryGetAsync(string token, CancellationToken cancellationToken = default)
     {
-        if (_sessions.TryGetValue(token, out session!))
-        {
-            if (session.ExpiresAt > DateTimeOffset.UtcNow) return true;
-            _sessions.TryRemove(token, out _);
-        }
+        var tokenHash = HashToken(token);
+        var session = await repository.FindAsync(tokenHash, cancellationToken);
+        if (session is null) return null;
+        if (session.ExpiresAt > DateTimeOffset.UtcNow) return session;
 
-        session = null!;
-        return false;
+        await repository.DeleteAsync(tokenHash, cancellationToken);
+        return null;
     }
 
-    /// <summary>Hủy phiên khi người dùng đăng xuất.</summary>
-    public void Revoke(string token) => _sessions.TryRemove(token, out _);
+    public Task RevokeAsync(string token, CancellationToken cancellationToken = default) =>
+        repository.DeleteAsync(HashToken(token), cancellationToken);
 
-    /// <summary>Hủy mọi phiên của tài khoản sau khi tài khoản bị khóa hoặc đổi mật khẩu.</summary>
-    public void RevokeUserSessions(string username)
-    {
-        foreach (var entry in _sessions)
-        {
-            if (entry.Value.Username.Equals(username, StringComparison.OrdinalIgnoreCase))
-                _sessions.TryRemove(entry.Key, out _);
-        }
-    }
+    public Task RevokeUserSessionsAsync(string username, CancellationToken cancellationToken = default) =>
+        repository.DeleteUserSessionsAsync(username, cancellationToken);
+
+    private static byte[] HashToken(string token) =>
+        SHA256.HashData(Encoding.UTF8.GetBytes(token));
 
     private static string Base64Url(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
 
-public sealed record AdminSession(string Username, string Role, DateTimeOffset ExpiresAt);
+public sealed record AdminSession(string Username, string Role, DateTimeOffset ExpiresAt, int? ReaderId = null);
 
 /// <summary>Tạo và kiểm tra hash mật khẩu PBKDF2-SHA256 có salt riêng cho từng tài khoản.</summary>
 public static class PasswordHashing

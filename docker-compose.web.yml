@@ -1,0 +1,23 @@
+services:
+  sqlserver:
+    ports: !override
+      - "127.0.0.1:${SQL_HOST_PORT:-14333}:1433"
+  api:
+    environment:
+      Demo__AllowPublicCardLookup: "${DEMO_ALLOW_PUBLIC_CARD_LOOKUP:-false}"
+    ports: !override
+      - "127.0.0.1:${API_HOST_PORT:-5001}:8080"
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      LibraryApi__BaseUrl: http://api:8080/
+    ports:
+      - "127.0.0.1:5002:8080"
+    depends_on:
+      api:
+        condition: service_started
+    networks: [library-net]
+    restart: unless-stopped

@@ -1,8 +1,11 @@
+using Library.Web.Security;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.ComponentModel.DataAnnotations;
-using System.Net.Http.Headers;
 
 namespace Library.Web.Controllers;
 
@@ -11,8 +14,14 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
 {
     // Tải sách và thể loại cùng lúc; khi API lỗi trang vẫn hiển thị thông báo dễ hiểu.
     public async Task<IActionResult> Index(string? q, int? genreId, bool availableOnly = false,
-        string? sort = null, int page = 1)
+        string? sort = null, int page = 1, string? author = null, int? year = null)
     {
+        q = q?.Trim();
+        if (q?.Length > 120) q = q[..120];
+        page = Math.Clamp(page, 1, 10000);
+        if (genreId is <= 0) genreId = null;
+        author = string.IsNullOrWhiteSpace(author) ? null : author.Trim()[..Math.Min(author.Trim().Length, 100)];
+        if (year is < 1000 or > 2100) year = null;
         try
         {
             using var http = clients.CreateClient("LibraryApi");
@@ -20,19 +29,44 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
             var requestedSort = sort?.Trim().ToLowerInvariant();
             sort = requestedSort is "newest" or "available" or "oldest" ? requestedSort : "title";
             var query = $"q={Uri.EscapeDataString(q ?? "")}&page={Math.Max(1, page)}&pageSize=12&sort={sort}" +
-                (genreId.HasValue ? $"&genreId={genreId}" : "") + (availableOnly ? "&availableOnly=true" : "");
+                (genreId.HasValue ? $"&genreId={genreId}" : "") +
+                (availableOnly ? "&availableOnly=true" : "") +
+                (author is not null ? $"&author={Uri.EscapeDataString(author)}" : "") +
+                (year.HasValue ? $"&year={year}" : "");
             var result = await http.GetFromJsonAsync<BookPageVm>($"api/catalog/books?{query}") ?? new([], 0, page, 12);
             ViewBag.Query = q; ViewBag.GenreId = genreId; ViewBag.Page = result.Page;
             ViewBag.AvailableOnly = availableOnly; ViewBag.Sort = sort;
+            ViewBag.Author = author; ViewBag.Year = year;
             ViewBag.Total = result.Total; ViewBag.Genres = genres;
             return View(result.Items);
         }
-        catch (Exception ex)
+        catch (HttpRequestException ex)
         {
             log.LogWarning(ex, "Không thể tải danh mục từ API");
-            ViewBag.ApiError = "Chưa kết nối được API. Hãy khởi động API và kiểm tra SQL Server.";
+            ViewBag.ApiError = "Hiện chưa kết nối được dịch vụ danh mục. Vui lòng kiểm tra kết nối hoặc thử lại sau.";
             ViewBag.Genres = new List<GenreVm>(); ViewBag.Query = q; ViewBag.Page = page;
             ViewBag.GenreId = genreId; ViewBag.AvailableOnly = availableOnly; ViewBag.Sort = sort ?? "title";
+            ViewBag.Author = author; ViewBag.Year = year;
+            ViewBag.Total = 0;
+            return View(new List<BookVm>());
+        }
+        catch (JsonException ex)
+        {
+            log.LogWarning(ex, "API danh mục trả về dữ liệu không hợp lệ");
+            ViewBag.ApiError = "Dịch vụ danh mục đang gặp sự cố. Vui lòng thử lại sau.";
+            ViewBag.Genres = new List<GenreVm>(); ViewBag.Query = q; ViewBag.Page = page;
+            ViewBag.GenreId = genreId; ViewBag.AvailableOnly = availableOnly; ViewBag.Sort = sort ?? "title";
+            ViewBag.Author = author; ViewBag.Year = year;
+            ViewBag.Total = 0;
+            return View(new List<BookVm>());
+        }
+        catch (TaskCanceledException ex) when (!HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            log.LogWarning(ex, "Quá thời gian chờ khi tải danh mục từ API");
+            ViewBag.ApiError = "Dịch vụ phản hồi quá thời gian. Vui lòng thử lại sau.";
+            ViewBag.Genres = new List<GenreVm>(); ViewBag.Query = q; ViewBag.Page = page;
+            ViewBag.GenreId = genreId; ViewBag.AvailableOnly = availableOnly; ViewBag.Sort = sort ?? "title";
+            ViewBag.Author = author; ViewBag.Year = year;
             ViewBag.Total = 0;
             return View(new List<BookVm>());
         }
@@ -113,13 +147,13 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
     [HttpGet]
     public async Task<IActionResult> MyAccount()
     {
-        var token = HttpContext.Session.GetString("ReaderToken");
+        var token = User.FindFirst(ReaderWebAuthentication.ApiTokenClaim)?.Value ?? HttpContext.Session.GetString("ReaderToken");
         if (string.IsNullOrWhiteSpace(token)) return RedirectToAction(nameof(ReaderLogin));
         try
         {
             using var http = clients.CreateClient("LibraryApi");
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            var model = await http.GetFromJsonAsync<ReaderPortalVm>("api/readers/me");
+            var model = await http.GetFromJsonAsync<ReaderPortalVm>("api/readers/me/portal");
             if (model is not null)
             {
                 // Older API instances may omit collections introduced by newer portal features.
@@ -142,7 +176,7 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ReaderLogout()
     {
-        var token = HttpContext.Session.GetString("ReaderToken");
+        var token = User.FindFirst(ReaderWebAuthentication.ApiTokenClaim)?.Value ?? HttpContext.Session.GetString("ReaderToken");
         if (!string.IsNullOrWhiteSpace(token))
         {
             using var http = clients.CreateClient("LibraryApi");
@@ -157,7 +191,7 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> CancelReservation(int id)
     {
-        var token = HttpContext.Session.GetString("ReaderToken");
+        var token = User.FindFirst(ReaderWebAuthentication.ApiTokenClaim)?.Value ?? HttpContext.Session.GetString("ReaderToken");
         if (string.IsNullOrWhiteSpace(token)) return RedirectToAction(nameof(ReaderLogin));
         using var http = clients.CreateClient("LibraryApi");
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -172,7 +206,7 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> RequestLoan(int id)
     {
-        var token=HttpContext.Session.GetString("ReaderToken");
+        var token=User.FindFirst(ReaderWebAuthentication.ApiTokenClaim)?.Value ?? HttpContext.Session.GetString("ReaderToken");
         if(string.IsNullOrWhiteSpace(token))
             return RedirectToAction(nameof(ReaderLogin),new{returnUrl=Url.Action(nameof(Details),new{id})});
         using var http=clients.CreateClient("LibraryApi");
@@ -202,7 +236,7 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> CancelLoanRequest(int id)
     {
-        var token=HttpContext.Session.GetString("ReaderToken");
+        var token=User.FindFirst(ReaderWebAuthentication.ApiTokenClaim)?.Value ?? HttpContext.Session.GetString("ReaderToken");
         if(string.IsNullOrWhiteSpace(token))return RedirectToAction(nameof(ReaderLogin));
         using var http=clients.CreateClient("LibraryApi");
         http.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",token);
@@ -217,7 +251,7 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> RenewLoan(int id)
     {
-        var token=HttpContext.Session.GetString("ReaderToken");
+        var token=User.FindFirst(ReaderWebAuthentication.ApiTokenClaim)?.Value ?? HttpContext.Session.GetString("ReaderToken");
         if(string.IsNullOrWhiteSpace(token))return RedirectToAction(nameof(ReaderLogin));
         using var http=clients.CreateClient("LibraryApi");
         http.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",token);
@@ -237,7 +271,7 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
             TempData["PortalError"]=newPassword!=confirmPassword?"Mật khẩu mới nhập lại chưa khớp.":"Mật khẩu mới cần ít nhất 8 ký tự.";
             return RedirectToAction(nameof(MyAccount));
         }
-        var token=HttpContext.Session.GetString("ReaderToken");
+        var token=User.FindFirst(ReaderWebAuthentication.ApiTokenClaim)?.Value ?? HttpContext.Session.GetString("ReaderToken");
         if(string.IsNullOrWhiteSpace(token))return RedirectToAction(nameof(ReaderLogin));
         using var http=clients.CreateClient("LibraryApi");
         http.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",token);
@@ -257,7 +291,7 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> MarkNotificationRead(int id)
     {
-        var token=HttpContext.Session.GetString("ReaderToken");
+        var token=User.FindFirst(ReaderWebAuthentication.ApiTokenClaim)?.Value ?? HttpContext.Session.GetString("ReaderToken");
         if(string.IsNullOrWhiteSpace(token))return RedirectToAction(nameof(ReaderLogin));
         using var http=clients.CreateClient("LibraryApi");
         http.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",token);
@@ -272,51 +306,73 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
         try
         {
             using var http = clients.CreateClient("LibraryApi");
-            var book = await http.GetFromJsonAsync<BookDetailsVm>($"api/catalog/books/{id}");
-            return book is null ? NotFound() : View(book);
+            using var response = await http.GetAsync($"api/catalog/books/{id}", HttpContext.RequestAborted);
+            if (response.StatusCode == HttpStatusCode.NotFound) return NotFound();
+            response.EnsureSuccessStatusCode();
+            var book = await response.Content.ReadFromJsonAsync<BookDetailsVm>(HttpContext.RequestAborted);
+            if (book is not null) return View(book);
         }
-        catch (Exception ex) { log.LogWarning(ex, "Không thể tải chi tiết sách {BookId}", id); return NotFound(); }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException ||
+            ex is OperationCanceledException && !HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            log.LogWarning(ex, "Không thể tải chi tiết sách {BookId}", id);
+        }
+
+        Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        return View("Error");
     }
 
-    /// <summary>Hiển thị biểu mẫu tra cứu thẻ thư viện.</summary>
-    [HttpGet]
-    public IActionResult CardLookup() => string.IsNullOrWhiteSpace(HttpContext.Session.GetString("ReaderToken"))
-        ? RedirectToAction(nameof(ReaderLogin), new { returnUrl = Url.Action(nameof(CardLookup)) })
-        : RedirectToAction(nameof(MyAccount));
-
-    /// <summary>Tra cứu thẻ và lịch sử đang mượn qua API; MVC không kết nối trực tiếp SQL Server.</summary>
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public IActionResult CardLookup(CardLookupPageVm model)
+    [Route("/Home/Error")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult Error()
     {
-        _ = model;
-        return CardLookup();
+        Response.StatusCode = StatusCodes.Status500InternalServerError;
+        return View("Error");
     }
+
+    /// <summary>Mở lịch sử mượn cá nhân; bạn đọc phải đăng nhập.</summary>
+    [HttpGet]
+    public IActionResult CardLookup() => RedirectToAction("History", "ReaderAccount");
 
     /// <summary>Gửi yêu cầu đặt trước qua API khi sách không còn bản sao khả dụng.</summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Reserve(int id)
     {
-        var token = HttpContext.Session.GetString("ReaderToken");
+        var token = User.FindFirst(ReaderWebAuthentication.ApiTokenClaim)?.Value
+            ?? HttpContext.Session.GetString("ReaderToken");
         var normalizedCard = HttpContext.Session.GetString("ReaderCard");
         if (string.IsNullOrWhiteSpace(token))
         {
             TempData["ReservationError"] = "Vui lòng đăng nhập tài khoản bạn đọc để đặt trước.";
-            return RedirectToAction(nameof(ReaderLogin), new { returnUrl = Url.Action(nameof(Details), new { id }) });
+            return RedirectToAction("Login", "ReaderAccount", new { returnUrl = Url.Action(nameof(Details), new { id }) });
         }
-        if (id <= 0 || string.IsNullOrWhiteSpace(normalizedCard) || normalizedCard.Length > 30)
+        if (id <= 0 || (HttpContext.Session.GetString("ReaderToken") is not null &&
+            (string.IsNullOrWhiteSpace(normalizedCard) || normalizedCard.Length > 30)))
         {
-            TempData["ReservationError"] = "Vui lòng nhập số thẻ thư viện hợp lệ.";
+            TempData["ReservationError"] = "Đầu sách không hợp lệ.";
             return RedirectToAction(nameof(Details), new { id });
         }
 
         try
         {
             using var http = clients.CreateClient("LibraryApi");
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            using var response = await http.PostAsJsonAsync("api/catalog/reservations",
-                new { bookId = id });
+            using var request = new HttpRequestMessage(HttpMethod.Post, "api/catalog/reservations")
+            {
+                Content = JsonContent.Create(new { bookId = id })
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var response = await http.SendAsync(request, HttpContext.RequestAborted);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                await HttpContext.SignOutAsync(ReaderWebAuthentication.Scheme);
+                TempData["ReaderError"] = "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.";
+                return RedirectToAction("Login", "ReaderAccount", new
+                {
+                    returnUrl = Url.Action(nameof(Details), new { id })
+                });
+            }
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<ReservationResultVm>();
@@ -328,10 +384,20 @@ public sealed class HomeController(IHttpClientFactory clients, ILogger<HomeContr
                     ?? "Không thể gửi yêu cầu đặt trước.";
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
+        catch (HttpRequestException ex)
         {
             log.LogWarning(ex, "Không thể đặt trước sách {BookId}", id);
             TempData["ReservationError"] = "Hiện chưa kết nối được dịch vụ đặt trước. Vui lòng thử lại sau.";
+        }
+        catch (JsonException ex)
+        {
+            log.LogWarning(ex, "API đặt trước trả về dữ liệu không hợp lệ cho sách {BookId}", id);
+            TempData["ReservationError"] = "Dịch vụ đặt trước trả về dữ liệu không hợp lệ. Vui lòng thử lại.";
+        }
+        catch (TaskCanceledException ex) when (!HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            log.LogWarning(ex, "API đặt trước phản hồi quá thời gian cho sách {BookId}", id);
+            TempData["ReservationError"] = "Dịch vụ đặt trước phản hồi quá thời gian. Vui lòng thử lại.";
         }
 
         return RedirectToAction(nameof(Details), new { id });
@@ -359,16 +425,6 @@ public sealed record BookVm(int id, string title, string? isbn, int? year, strin
 public sealed record BookPageVm(List<BookVm> Items, int Total, int Page, int PageSize);
 public sealed record BookDetailsVm(int id, string title, string? isbn, int? year, string? description,
     string genre, string publisher, List<string> authors, int available);
-public sealed class CardLookupPageVm
-{
-    public string CardNumber { get; set; } = string.Empty;
-    public ReaderCardVm? Result { get; set; }
-    public string? Error { get; set; }
-}
-public sealed record ReaderCardVm(string cardNumber, string fullName, string expiryDate, string status,
-    bool isExpired, bool canBorrow, int openLoansCount, int maxLoans, List<BorrowedBookVm> borrowedBooks);
-public sealed record BorrowedBookVm(string loanCode, string copyCode, string title, string loanDate,
-    string dueDate, int overdueDays, decimal fineExpected, bool isOverdue);
 public sealed record ReservationResultVm(string message);
 public sealed class ReaderRegistrationVm
 {

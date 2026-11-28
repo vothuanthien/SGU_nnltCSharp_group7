@@ -14,7 +14,7 @@ namespace Library.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/readers")]
-public sealed class ReadersController(DbFactory db, AdminSessionStore sessions) : ControllerBase
+public sealed class ReadersController(DbFactory db, AdminSessionStore sessions, IConfiguration configuration) : ControllerBase
 {
     public sealed class RegisterReaderRequest
     {
@@ -96,7 +96,7 @@ public sealed class ReadersController(DbFactory db, AdminSessionStore sessions) 
         await using var connection = db.Create();
         await connection.OpenAsync();
         await using var command = new SqlCommand(
-            "SELECT CardNumber, FullName, PasswordHash, Status, ExpiryDate FROM Readers WHERE Username=@username", connection);
+            "SELECT CardNumber, FullName, PasswordHash, Status, ExpiryDate, ReaderId FROM Readers WHERE Username=@username", connection);
         command.Parameters.Add("@username", SqlDbType.NVarChar, 80).Value = request.Username.Trim();
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow);
         if (!await reader.ReadAsync() || reader.IsDBNull(2) ||
@@ -107,12 +107,13 @@ public sealed class ReadersController(DbFactory db, AdminSessionStore sessions) 
 
         var cardNumber = reader.GetString(0);
         var fullName = reader.GetString(1);
-        var (token, session) = sessions.Create(cardNumber, "Reader");
+        var readerId = reader.GetInt32(5);
+        var (token, session) = await sessions.CreateAsync(cardNumber, "Reader", readerId, HttpContext.RequestAborted);
         return Ok(new { token, cardNumber, fullName, expiresAt = session.ExpiresAt });
     }
 
     [Authorize(Roles = "Reader")]
-    [HttpGet("me")]
+    [HttpGet("me/portal")]
     public async Task<IActionResult> MyPortal()
     {
         var cardNumber = User.Identity?.Name;
@@ -241,8 +242,8 @@ public sealed class ReadersController(DbFactory db, AdminSessionStore sessions) 
             }
             await ReaderNotificationStore.AuditAsync(connection,tx,username,"Reader.PasswordChanged","Reader",readerId.ToString());
             await tx.CommitAsync();
-            sessions.RevokeUserSessions(card??string.Empty);
-            var (token,session)=sessions.Create(card??string.Empty,"Reader");
+            await sessions.RevokeUserSessionsAsync(card??string.Empty, HttpContext.RequestAborted);
+            var (token,session)=await sessions.CreateAsync(card??string.Empty,"Reader", readerId, HttpContext.RequestAborted);
             return Ok(new{token,expiresAt=session.ExpiresAt});
         }
         catch { await tx.RollbackAsync(); throw; }
@@ -405,6 +406,12 @@ public sealed class ReadersController(DbFactory db, AdminSessionStore sessions) 
     [HttpGet("card/{cardNumber}")]
     public async Task<IActionResult> LookupCard(string cardNumber)
     {
+        if (!configuration.GetValue<bool>("Demo:AllowPublicCardLookup"))
+        {
+            if (User.Identity?.IsAuthenticated != true) return Unauthorized();
+            if (!User.IsInRole("Admin") && !User.IsInRole("Librarian")) return Forbid();
+        }
+
         if (string.IsNullOrWhiteSpace(cardNumber))
             return BadRequest(new { error = "Vui lòng nhập số thẻ bạn đọc." });
 

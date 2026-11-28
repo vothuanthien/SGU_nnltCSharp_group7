@@ -2,6 +2,7 @@
 @{
     ViewData["Title"] = Model.title;
     var coverClass = $"cover-{Model.id % 6 + 1}";
+    var readerLoggedIn = Context.Session.GetString("ReaderToken") is not null || User.IsInRole("Reader");
 }
 
 <a asp-action="Index" class="back-link">← <span>Quay lại danh mục sách</span></a>
@@ -48,7 +49,7 @@
         }
         @if (Model.available > 0)
         {
-            @if (Context.Session.GetString("ReaderToken") is not null)
+            @if (readerLoggedIn)
             {
                 <form asp-action="RequestLoan" asp-route-id="@Model.id" method="post" class="reservation-form mt-3">
                     @Html.AntiForgeryToken()
@@ -58,10 +59,10 @@
             }
             else
             {
-                <div class="reservation-form mt-3"><p class="mb-2">Đăng nhập để gửi yêu cầu mượn sách này.</p><a asp-action="ReaderLogin" asp-route-returnUrl="@Url.Action("Details", new { id = Model.id })" class="btn btn-primary">Đăng nhập để mượn</a></div>
+                <div class="reservation-form mt-3"><p class="mb-2">Đăng nhập để gửi yêu cầu mượn sách này.</p><a asp-controller="ReaderAccount" asp-action="Login" asp-route-returnUrl="@Url.Action("Details", new { id = Model.id })" class="btn btn-primary">Đăng nhập để mượn</a></div>
             }
         }
-        @if (Context.Session.GetString("ReaderToken") is not null)
+        @if (readerLoggedIn)
         {
             <form asp-action="Reserve" asp-route-id="@Model.id" method="post" class="reservation-form mt-3">
                 @Html.AntiForgeryToken()
@@ -72,7 +73,7 @@
         }
         else
         {
-            <div class="reservation-form mt-3"><p class="mb-2">Đăng nhập bằng tài khoản bạn đọc để gửi yêu cầu mượn hoặc đặt trước sách.</p><a asp-action="ReaderLogin" asp-route-returnUrl="@Url.Action("Details", new { id = Model.id })" class="btn btn-outline-primary">Đăng nhập để đặt trước</a></div>
+            <div class="reservation-form mt-3"><p class="mb-2">Đăng nhập bằng tài khoản bạn đọc để gửi yêu cầu mượn hoặc đặt trước sách.</p><a asp-controller="ReaderAccount" asp-action="Login" asp-route-returnUrl="@Url.Action("Details", new { id = Model.id })" class="btn btn-outline-primary">Đăng nhập để đặt trước</a></div>
         }
 
         <section class="description-block">

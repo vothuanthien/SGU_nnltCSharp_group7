@@ -8,9 +8,10 @@
 
 - `POST /api/auth/login`: kiểm tra username/password từ bảng `Accounts`.
 - Mật khẩu được băm/kiểm tra bằng PBKDF2-SHA256; không lưu mật khẩu thuần.
-- API phát **bearer token phiên ngẫu nhiên** (lưu trong bộ nhớ API, hết hạn sau 8 giờ). Đây không phải JWT.
+- API phát **bearer token phiên ngẫu nhiên**, hết hạn sau 8 giờ; SQL Server chỉ lưu SHA-256 hash trong `dbo.AdminSessions`. Dùng chung database giúp phiên còn hiệu lực sau khi API restart hoặc chạy nhiều instance. Đây không phải JWT.
 - API CRUD đầu sách, mượn và trả chỉ cho phép role `Admin` hoặc `Librarian`.
 - Tên thủ thư ghi vào `Loans` và `Returns` lấy từ danh tính của phiên đã xác thực, không lấy từ dữ liệu client gửi lên (đã sửa trong đợt cập nhật sau; bản trước chưa bảo vệ các API này).
+- Admin có thể tạo/khóa tài khoản nhân viên và reset mật khẩu; khóa/reset sẽ thu hồi phiên trong cùng transaction.
 
 ### CRUD đầu sách trên Desktop
 
@@ -23,7 +24,7 @@ Lưu ý: form này mới quản lý **đầu sách** (`BookTitles`), chưa quả
 
 ## 2. Chạy lần đầu
 
-1. Chạy các script SQL 01–06 như hướng dẫn chính.
+1. Chạy scripts `01–04`, `07`, `08`, `10`; chạy `06_CreateDemoAdmin.sql` để tạo tài khoản demo local.
 2. Mở `QuanLyThuVien.sln`, restore NuGet Packages và Build Solution.
 3. Chạy `Library.Api` bằng profile `http`.
 4. Chạy `Library.Admin.WinForms`.
@@ -45,7 +46,7 @@ Content-Type: application/json
 {"username":"admin","password":"Admin@12345"}
 ```
 
-Danh sách đầu sách (thay `TOKEN` bằng `accessToken` nhận được):
+Danh sách đầu sách (thay `TOKEN` bằng trường `token` trong response đăng nhập):
 
 ```http
 GET http://localhost:5001/api/admin/catalog/books
@@ -72,10 +73,10 @@ Content-Type: application/json
 ## 4. Checklist kiểm tra sau khi build
 
 - [ ] Chạy script 06 tạo được tài khoản `admin`.
-- [ ] Đăng nhập đúng mật khẩu nhận HTTP 200 và có `accessToken`.
+- [ ] Đăng nhập đúng mật khẩu nhận HTTP 200 và có `token`.
 - [ ] Đăng nhập sai mật khẩu nhận HTTP 401.
-- [ ] Gọi `GET /api/admin/books` không có token nhận HTTP 401.
-- [ ] Gọi `GET /api/admin/books` có token Admin nhận HTTP 200.
+- [ ] Gọi `GET /api/admin/catalog/books` không có token nhận HTTP 401.
+- [ ] Gọi `GET /api/admin/catalog/books` có token Admin nhận HTTP 200.
 - [ ] Desktop bắt buộc hiển thị form đăng nhập trước MainForm.
 - [ ] Thêm đầu sách từ Desktop và thấy dữ liệu trong SQL Server.
 - [ ] Cập nhật đầu sách từ Desktop và kiểm tra thay đổi trong SQL Server.
@@ -87,6 +88,6 @@ Content-Type: application/json
 
 - Chưa có giao diện đổi mật khẩu/tạo tài khoản nhân viên.
 - Chưa có màn hình quản lý tác giả/thể loại/nhà xuất bản; khi thêm sách, nhập ID đã có trong SQL Server.
-- CRUD bản sao và bạn đọc đã có ở đợt cập nhật sau; chưa có đặt trước, lịch sử cá nhân, thanh toán phạt, dashboard, báo cáo hoặc sao lưu.
-- Phiên lưu trong bộ nhớ nên API khởi động lại thì phải đăng nhập lại. Khi triển khai thật phải bật HTTPS và không commit bí mật lên Git.
+- CRUD bản sao/bạn đọc, đăng nhập bạn đọc, đặt trước và lịch sử cá nhân đã được bổ sung. Đặt trước Pending trùng bị chặn bởi unique index; cần kiểm thử hai request đồng thời với SQL Server.
+- Phiên lưu trong `dbo.AdminSessions`; nhiều API instance phải dùng chung database. Khi triển khai thật phải bật HTTPS và không commit bí mật lên Git.
 - Phần bổ sung chưa được chạy tích hợp với SQL Server. Cần chạy checklist ở trên trong Visual Studio 2022 hoặc trên máy đã cài .NET 8 SDK.
