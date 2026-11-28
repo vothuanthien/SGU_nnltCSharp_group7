@@ -1,6 +1,6 @@
 # Hệ thống quản lý thư viện C#
 
-Solution Visual Studio gồm ASP.NET Core Web API, ASP.NET Core MVC/Razor, Windows Forms, Entity Framework Core và SQL Server LocalDB. Dự án có thể chạy bằng LocalDB hoặc Docker Compose.
+Solution Visual Studio gồm ASP.NET Core Web API, ASP.NET Core MVC/Razor, Windows Forms, EF Core/ADO.NET và SQL Server. Có thể chạy bằng LocalDB hoặc Docker Compose.
 
 ## Mở và chạy
 
@@ -22,7 +22,7 @@ Mở `QuanLyThuVien.sln` bằng Visual Studio hoặc làm theo [hướng dẫn c
 - `.dotnet-home`: cache/config .NET cục bộ, được Git bỏ qua.
 
 ## Trạng thái
-Xem `Documents/ImplementationStatus.md` (đã có / chưa có) và `Documents/KiemThu.md` (mục nào đã chạy thật). Cập nhật 24/11/2026: toàn solution build thành công (0 cảnh báo, 0 lỗi) và migrations 10–11 đã áp dụng vào LocalDB. 20 kiểm tra Domain/PBKDF2/phiên và kiểm tra handler xác thực đã đạt ở lượt trước; các luồng nghiệp vụ Web–API–SQL–WinForms và Docker vẫn cần chạy end-to-end theo checklist trước khi nộp.
+Build toàn solution sau khi gộp thành công với 0 warning và 0 error. Bộ kiểm tra console hiện có đạt 25 kiểm tra. Kiểm thử tích hợp SQL Server, Web–API–WinForms và Docker vẫn cần chạy theo checklist trong Documents/KiemThu.md.
 
 ## Docker
 `docker compose up -d --build` chạy 2 container (SQL Server + Library.Api); Web và WinForms chạy trên Windows. Chi tiết: `Documents/Docker.md`.

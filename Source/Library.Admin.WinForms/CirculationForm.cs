@@ -233,10 +233,17 @@ internal sealed class CirculationForm : Form
             _gridLoans.DataSource = table;
             _result.Text = $"Tra cứu thành công. Bạn đọc hiện đang mượn {_openLoans} cuốn sách.";
         }
-        catch (Exception ex)
+        catch (HttpRequestException)
         {
             _readerInfo.ForeColor = Color.Firebrick;
-            _readerInfo.Text = "Lỗi khi gọi API: " + ex.Message;
+            _readerInfo.Text = "Không kết nối được dịch vụ tra cứu. Vui lòng thử lại sau.";
+            _canBorrow = false;
+            _loanButton.Enabled = false;
+        }
+        catch (JsonException)
+        {
+            _readerInfo.ForeColor = Color.Firebrick;
+            _readerInfo.Text = "Dịch vụ trả về dữ liệu không hợp lệ. Vui lòng thử lại sau.";
             _canBorrow = false;
             _loanButton.Enabled = false;
         }
@@ -272,7 +279,7 @@ internal sealed class CirculationForm : Form
         _loanButton.Enabled = false;
         try
         {
-            var response = await PostAsync("api/loans", new { cardNumber = card, copyCodes = codes });
+            using var response = await PostAsync("api/loans", new { cardNumber = card, copyCodes = codes });
             if (response is null) return;
 
             var data = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -348,27 +355,35 @@ internal sealed class CirculationForm : Form
             {
                 System.Net.HttpStatusCode.Unauthorized => "Phiên đăng nhập đã hết hạn, hãy đăng nhập lại.",
                 System.Net.HttpStatusCode.Forbidden => "Tài khoản không có quyền thực hiện thao tác này.",
+                System.Net.HttpStatusCode.ServiceUnavailable or System.Net.HttpStatusCode.GatewayTimeout => "Dịch vụ đang tạm thời gián đoạn. Hãy kiểm tra trạng thái giao dịch trước khi gửi lại.",
                 _ => await ReadErrorAsync(response)
             };
+            response.Dispose();
             return null;
         }
-        catch (HttpRequestException ex)
+        catch (HttpRequestException)
         {
-            _result.Text = "Không kết nối được API: " + ex.Message;
+            _result.Text = "Chưa nhận được xác nhận từ dịch vụ. Hãy kiểm tra trạng thái giao dịch trước khi gửi lại.";
             return null;
         }
     }
 
     private static async Task<string> ReadErrorAsync(HttpResponseMessage response)
     {
-        var body = await response.Content.ReadAsStringAsync();
         try
         {
-            return JsonDocument.Parse(body).RootElement.GetProperty("error").GetString() ?? body;
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            if (document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
+                return error.GetString() ?? "Không thể hoàn tất thao tác. Vui lòng kiểm tra dữ liệu.";
+            return "Không thể hoàn tất thao tác. Vui lòng kiểm tra dữ liệu và thử lại.";
         }
-        catch
+        catch (JsonException)
         {
-            return $"Lỗi {(int)response.StatusCode}: {body}";
+            return response.StatusCode switch
+            {
+                System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.Conflict or System.Net.HttpStatusCode.UnprocessableEntity => "Dữ liệu chưa hợp lệ hoặc trạng thái đã thay đổi. Hãy kiểm tra lại thông tin.",
+                _ => "Không thể hoàn tất thao tác. Mã tham chiếu HTTP " + (int)response.StatusCode + "."
+            };
         }
     }
 }

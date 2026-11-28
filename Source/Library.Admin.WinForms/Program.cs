@@ -6,9 +6,17 @@ internal static class Program
     static void Main()
     {
         ApplicationConfiguration.Initialize();
-        // Chỉ mở màn hình quản trị sau khi API xác thực tài khoản và cấp phiên hợp lệ.
-        using var login = new LoginForm();
-        if (login.ShowDialog() == DialogResult.OK && login.Token is not null)
-            Application.Run(new MainForm(login.Token, login.Username, login.Role ?? "Librarian"));
+        // Giữ ứng dụng chạy xuyên suốt các phiên; đăng xuất đưa người dùng về màn hình đăng nhập.
+        while (true)
+        {
+            using var login = new LoginForm();
+            if (login.ShowDialog() != DialogResult.OK || login.Token is null)
+                return;
+
+            using var admin = new MainForm(login.Token, login.Username, login.Role ?? "Librarian");
+            admin.ShowDialog();
+            if (admin.DialogResult != DialogResult.OK)
+                return;
+        }
     }
 }

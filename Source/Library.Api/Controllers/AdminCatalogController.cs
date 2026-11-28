@@ -25,9 +25,15 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
             ["books"] = new("BookTitles", "BookId",
                 "SELECT TOP (500) b.BookId AS id,b.Title AS title,b.ISBN AS isbn,b.PublishedYear AS publishedYear," +
                 "b.Description AS description,b.GenreId AS genreId,g.Name AS genre,b.PublisherId AS publisherId," +
-                "p.Name AS publisher,b.IsActive AS isActive FROM BookTitles b LEFT JOIN Genres g ON g.GenreId=b.GenreId " +
-                "LEFT JOIN Publishers p ON p.PublisherId=b.PublisherId",
-                "b.Title LIKE @term OR ISNULL(b.ISBN,N'') LIKE @term", "b.Title",
+                "p.Name AS publisher,b.IsActive AS isActive,ISNULL(a.authors,N'Chưa cập nhật') AS authors," +
+                "ISNULL(c.totalCopies,0) AS totalCopies,ISNULL(c.borrowedCopies,0) AS borrowedCopies," +
+                "ISNULL(c.availableCopies,0) AS availableCopies FROM BookTitles b LEFT JOIN Genres g ON g.GenreId=b.GenreId " +
+                "LEFT JOIN Publishers p ON p.PublisherId=b.PublisherId " +
+                "LEFT JOIN (SELECT ba.BookId,STRING_AGG(au.FullName,N', ') AS authors FROM BookAuthors ba " +
+                "JOIN Authors au ON au.AuthorId=ba.AuthorId GROUP BY ba.BookId) a ON a.BookId=b.BookId " +
+                "LEFT JOIN (SELECT BookId,COUNT(*) AS totalCopies,SUM(CASE WHEN Status='Borrowed' THEN 1 ELSE 0 END) AS borrowedCopies," +
+                "SUM(CASE WHEN Status='Available' THEN 1 ELSE 0 END) AS availableCopies FROM BookCopies GROUP BY BookId) c ON c.BookId=b.BookId",
+                "b.Title LIKE @term OR ISNULL(b.ISBN,N'') LIKE @term OR EXISTS (SELECT 1 FROM BookCopies cx WHERE cx.BookId=b.BookId AND cx.CopyCode LIKE @term)", "b.Title",
                 [
                     new("title", "Title", SqlDbType.NVarChar, 300, true),
                     new("isbn", "ISBN", SqlDbType.NVarChar, 20),
@@ -88,14 +94,17 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
 
     // Trả tối đa 500 bản ghi theo danh mục; tìm kiếm chỉ ghép từ các câu SQL trong allowlist.
     [HttpGet("{resource}")]
-    public async Task<IActionResult> List(string resource, [FromQuery] string? q)
+    public async Task<IActionResult> List(string resource, [FromQuery] string? q, [FromQuery] int? genreId)
     {
         if (!Resources.TryGetValue(resource, out var definition)) return NotFound();
 
         await using var connection = db.Create();
         await connection.OpenAsync();
+        var genreClause = resource.Equals("books", StringComparison.OrdinalIgnoreCase) && genreId.HasValue
+            ? " AND b.GenreId=@genreId" : string.Empty;
         await using var command = new SqlCommand(
-            $"{definition.SelectSql} WHERE (@term=N'' OR ({definition.SearchSql})) ORDER BY {definition.OrderBy}", connection);
+            $"{definition.SelectSql} WHERE (@term=N'' OR ({definition.SearchSql})){genreClause} ORDER BY {definition.OrderBy}", connection);
+        if (!string.IsNullOrWhiteSpace(genreClause)) command.Parameters.Add("@genreId", SqlDbType.Int).Value = genreId!.Value;
         command.Parameters.Add("@term", SqlDbType.NVarChar, 300).Value =
             string.IsNullOrWhiteSpace(q) ? string.Empty : $"%{q.Trim()}%";
 
@@ -164,6 +173,9 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
                 await transaction.RollbackAsync();
                 return NotFound(new { error = "Không tìm thấy dữ liệu cần cập nhật." });
             }
+            if (resource.Equals("readers", StringComparison.OrdinalIgnoreCase) &&
+                IsReaderInactive(definition, values))
+                await RevokeReaderSessionsAsync(connection, transaction, id);
             await WriteAudit(connection, transaction, "Update", resource, id);
             await transaction.CommitAsync();
             return NoContent();
@@ -176,7 +188,41 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
         }
     }
 
-    // Xóa cứng chỉ với danh mục không có lịch sử; những danh mục nghiệp vụ được ngừng hoạt động.
+    // Ngừng hoạt động riêng với xóa cứng để người dùng chọn đúng ý định.
+    [HttpPut("{resource}/{id:int}/deactivate")]
+    public async Task<IActionResult> Deactivate(string resource, int id)
+    {
+        if (!Resources.TryGetValue(resource, out var definition)) return NotFound();
+        if (definition.SoftDeleteSql is null)
+            return BadRequest(new { error = "Danh mục này không hỗ trợ ngừng hoạt động." });
+
+        await using var connection = db.Create();
+        await connection.OpenAsync();
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
+        try
+        {
+            await using var command = new SqlCommand(definition.SoftDeleteSql, connection, transaction);
+            command.Parameters.Add("@id", SqlDbType.Int).Value = id;
+            if (await command.ExecuteNonQueryAsync() == 0)
+            {
+                await transaction.RollbackAsync();
+                return NotFound(new { error = "Không tìm thấy bản ghi hoặc không thể ngừng hoạt động ở trạng thái hiện tại." });
+            }
+            if (resource.Equals("readers", StringComparison.OrdinalIgnoreCase))
+                await RevokeReaderSessionsAsync(connection, transaction, id);
+            await WriteAudit(connection, transaction, "Deactivate", resource, id);
+            await transaction.CommitAsync();
+            return NoContent();
+        }
+        catch (SqlException ex)
+        {
+            await transaction.RollbackAsync();
+            logger.LogWarning(ex, "Không thể ngừng hoạt động resource={Resource} id={Id}", resource, id);
+            return SqlConflict(ex);
+        }
+    }
+
+    // Giữ route DELETE cũ cho tương thích; thao tác xóa cứng có route explicit riêng.
     [HttpDelete("{resource}/{id:int}")]
     public async Task<IActionResult> Delete(string resource, int id)
     {
@@ -195,6 +241,8 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
                 await transaction.RollbackAsync();
                 return NotFound(new { error = "Không tìm thấy dữ liệu hoặc dữ liệu không thể xóa ở trạng thái hiện tại (ví dụ bản sao đang được mượn)." });
             }
+            if (resource.Equals("readers", StringComparison.OrdinalIgnoreCase))
+                await RevokeReaderSessionsAsync(connection, transaction, id);
             await WriteAudit(connection, transaction, definition.SoftDeleteSql is null ? "Delete" : "Deactivate", resource, id);
             await transaction.CommitAsync();
             return NoContent();
@@ -203,6 +251,46 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
         {
             await transaction.RollbackAsync();
             logger.LogWarning(ex, "Không thể xóa resource={Resource} id={Id}", resource, id);
+            return SqlConflict(ex);
+        }
+    }
+
+    [HttpDelete("{resource}/{id:int}/permanent")]
+    public async Task<IActionResult> DeletePermanent(string resource, int id)
+    {
+        if (!Resources.TryGetValue(resource, out var definition)) return NotFound();
+
+        await using var connection = db.Create();
+        await connection.OpenAsync();
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
+        try
+        {
+            if (resource.Equals("readers", StringComparison.OrdinalIgnoreCase))
+            {
+                await RevokeReaderSessionsAsync(connection, transaction, id);
+                await using var deleteAccount = new SqlCommand(
+                    "DELETE FROM dbo.ReaderAccounts WHERE ReaderId=@id", connection, transaction);
+                deleteAccount.Parameters.Add("@id", SqlDbType.Int).Value = id;
+                await deleteAccount.ExecuteNonQueryAsync();
+            }
+
+            await using var command = new SqlCommand(
+                $"DELETE FROM [{definition.Table}] WHERE [{definition.IdColumn}]=@id", connection, transaction);
+            command.Parameters.Add("@id", SqlDbType.Int).Value = id;
+            if (await command.ExecuteNonQueryAsync() == 0)
+            {
+                await transaction.RollbackAsync();
+                return NotFound(new { error = "Không tìm thấy bản ghi cần xóa." });
+            }
+
+            await WriteAudit(connection, transaction, "DeletePermanent", resource, id);
+            await transaction.CommitAsync();
+            return NoContent();
+        }
+        catch (SqlException ex)
+        {
+            await transaction.RollbackAsync();
+            logger.LogWarning(ex, "Không thể xóa vĩnh viễn resource={Resource} id={Id}", resource, id);
             return SqlConflict(ex);
         }
     }
@@ -301,6 +389,10 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
                     SqlDbType.NVarChar or SqlDbType.VarChar => ReadString(value, field),
                     _ => throw new ArgumentException($"Kiểu dữ liệu chưa được hỗ trợ: {field.JsonName}.")
                 };
+
+                if (definition.Table == "Readers" && field.JsonName == "phone" && values[i] is string phone &&
+                    (phone.Length != 10 || phone.Any(character => character is < '0' or > '9')))
+                    throw new ArgumentException("Số điện thoại phải gồm đúng 10 chữ số.");
             }
             return true;
         }
@@ -335,6 +427,27 @@ public sealed class AdminCatalogController(DbFactory db, ILogger<AdminCatalogCon
             if (field.Size != 0) parameter.Size = field.Size;
             command.Parameters.Add(parameter);
         }
+    }
+
+    private static bool IsReaderInactive(Resource definition, object?[] values)
+    {
+        var statusIndex = Array.FindIndex(definition.Fields, field => field.JsonName == "status");
+        var expiryIndex = Array.FindIndex(definition.Fields, field => field.JsonName == "expiryDate");
+        return (statusIndex >= 0 &&
+                !string.Equals(values[statusIndex] as string, "Active", StringComparison.OrdinalIgnoreCase)) ||
+               (expiryIndex >= 0 && values[expiryIndex] is DateTime expiryDate &&
+                expiryDate.Date < DateTime.Today);
+    }
+
+    private static async Task RevokeReaderSessionsAsync(
+        SqlConnection connection, SqlTransaction transaction, int readerId)
+    {
+        await using var command = new SqlCommand(
+            "DELETE FROM dbo.AdminSessions WHERE ReaderId=@readerId",
+            connection,
+            transaction);
+        command.Parameters.Add("@readerId", SqlDbType.Int).Value = readerId;
+        await command.ExecuteNonQueryAsync();
     }
 
     private async Task WriteAudit(SqlConnection connection, SqlTransaction transaction, string action, string entity, int id)

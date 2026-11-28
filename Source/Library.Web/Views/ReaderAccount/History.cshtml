@@ -1,0 +1,92 @@
+@model Library.Web.Models.ReaderHistoryViewModel
+@{
+    ViewData["Title"] = "Hồ sơ và lịch sử mượn";
+}
+
+<section class="reader-lookup-page">
+    <span class="section-kicker">TÀI KHOẢN BẠN ĐỌC</span>
+    <h1 class="mt-2">Hồ sơ và lịch sử mượn</h1>
+
+    @if (Model.ErrorMessage is string error)
+    {
+        <div class="alert alert-warning mt-3" role="alert">@error</div>
+    }
+
+    @if (Model.Profile is not null)
+    {
+        <section class="reader-lookup-result mt-3" aria-labelledby="reader-profile-heading">
+            <h2 id="reader-profile-heading" class="h5">Thông tin thẻ</h2>
+            <dl class="reader-summary mb-0">
+                <div><span>Họ tên</span><strong>@Model.Profile.FullName</strong></div>
+                <div><span>Số thẻ</span><strong>@Model.Profile.CardNumber</strong></div>
+                <div><span>Ngày hết hạn</span><strong>@Model.Profile.ExpiryDate</strong></div>
+                <div><span>Trạng thái</span><strong>@(Model.Profile.Status == "Active" ? "Đang hoạt động" : Model.Profile.Status)</strong></div>
+            </dl>
+        </section>
+
+        <section class="reader-lookup-result mt-4" aria-labelledby="reservation-heading">
+            <h2 id="reservation-heading" class="h5">Yêu cầu đặt trước</h2>
+            @if (Model.Reservations.Count == 0)
+            {
+                <p class="mb-0 text-muted">Bạn chưa có yêu cầu đặt trước nào.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead><tr><th>Sách</th><th>Ngày gửi</th><th>Trạng thái</th><th>Giữ đến</th></tr></thead>
+                        <tbody>
+                            @foreach (var reservation in Model.Reservations)
+                            {
+                                var status = reservation.Status switch
+                                {
+                                    "Pending" => "Đang chờ xử lý",
+                                    "Ready" => "Đã sẵn sàng nhận",
+                                    "Fulfilled" => "Đã nhận sách",
+                                    "Cancelled" => "Đã hủy",
+                                    _ => reservation.Status
+                                };
+                                <tr>
+                                    <td>@reservation.BookTitle</td>
+                                    <td>@reservation.RequestedAt</td>
+                                    <td>@status</td>
+                                    <td>@(reservation.HoldUntil ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="reader-lookup-result mt-4" aria-labelledby="loans-heading">
+            <h2 id="loans-heading" class="h5">Lịch sử mượn</h2>
+            @if (Model.Loans.Count == 0)
+            {
+                <p class="mb-0 text-muted">Bạn chưa có phiếu mượn nào.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead><tr><th>Mã phiếu</th><th>Sách</th><th>Mã bản sao</th><th>Ngày mượn</th><th>Hạn trả</th><th>Trả sách</th><th>Trạng thái</th></tr></thead>
+                        <tbody>
+                            @foreach (var loan in Model.Loans)
+                            {
+                                <tr>
+                                    <td>@loan.LoanCode</td>
+                                    <td>@loan.Title</td>
+                                    <td>@loan.CopyCode</td>
+                                    <td>@loan.LoanDate</td>
+                                    <td>@loan.DueDate</td>
+                                    <td>@(loan.ReturnedAt ?? "Chưa trả")</td>
+                                    <td>@(loan.ReturnedAt is not null ? "Đã trả" : loan.IsOverdue ? "Quá hạn" : "Đang mượn")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+</section>

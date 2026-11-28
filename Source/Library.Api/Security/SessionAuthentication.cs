@@ -11,7 +11,7 @@ public static class SessionAuthenticationDefaults
 }
 
 /// <summary>
-/// Xác thực bearer token phiên lưu trong AdminSessionStore (không phải JWT).
+/// Xác thực bearer token phiên lưu trong kho SQL dùng chung (không phải JWT).
 /// Handler dựng ClaimsPrincipal gồm tên và vai trò để [Authorize(Roles=...)] kiểm soát mọi endpoint.
 /// </summary>
 public sealed class SessionAuthenticationHandler(
@@ -20,32 +20,35 @@ public sealed class SessionAuthenticationHandler(
     UrlEncoder encoder,
     AdminSessionStore sessions) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         var header = Request.Headers.Authorization.ToString();
         if (string.IsNullOrWhiteSpace(header) || !header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            return Task.FromResult(AuthenticateResult.NoResult());
+            return AuthenticateResult.NoResult();
 
         var token = header[7..].Trim();
-        if (!sessions.TryGet(token, out var session))
-            return Task.FromResult(AuthenticateResult.Fail("Phiên đăng nhập không hợp lệ hoặc đã hết hạn."));
+        var session = await sessions.TryGetAsync(token, Context.RequestAborted);
+        if (session is null)
+            return AuthenticateResult.Fail("Phiên đăng nhập không hợp lệ hoặc đã hết hạn.");
 
         // Chuẩn hóa vai trò để so khớp chính xác với [Authorize(Roles = "Admin,Librarian")].
         var role = session.Role.Equals("Admin", StringComparison.OrdinalIgnoreCase) ? "Admin"
                  : session.Role.Equals("Librarian", StringComparison.OrdinalIgnoreCase) ? "Librarian"
                  : session.Role;
+        var claims = new List<Claim> { new(ClaimTypes.Name, session.Username), new(ClaimTypes.Role, role) };
+        if (session.ReaderId.HasValue) claims.Add(new Claim("reader_id", session.ReaderId.Value.ToString()));
         var identity = new ClaimsIdentity(
-            new[] { new Claim(ClaimTypes.Name, session.Username), new Claim(ClaimTypes.Role, role) },
+            claims,
             SessionAuthenticationDefaults.Scheme);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), SessionAuthenticationDefaults.Scheme);
-        return Task.FromResult(AuthenticateResult.Success(ticket));
+        return AuthenticateResult.Success(ticket);
     }
 
     // Chưa đăng nhập hoặc token sai/hết hạn: 401 cùng định dạng lỗi { error }.
     protected override async Task HandleChallengeAsync(AuthenticationProperties properties)
     {
         Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await Response.WriteAsJsonAsync(new { error = "Vui lòng đăng nhập quản trị." });
+        await Response.WriteAsJsonAsync(new { error = "Vui lòng đăng nhập để tiếp tục." });
     }
 
     // Đã đăng nhập nhưng vai trò không đủ quyền: 403.

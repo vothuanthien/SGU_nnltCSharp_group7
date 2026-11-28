@@ -39,13 +39,14 @@ public static class DbInitializer
             logger.LogInformation("Đã tạo database {Database} và dữ liệu mẫu.", databaseName);
         }
 
-        // Giai đoạn 2 bổ sung cột tài khoản và chỉ mục đặt trước; migration idempotent,
-        // nên chạy cho cả database mới lẫn volume Docker đã tồn tại.
+        // Migrations idempotent chạy cả với database mới lẫn volume Docker đã tồn tại.
         await RunScriptAsync(master, Path.Combine(scriptsPath, "07_ProfessionalSkills_Update.sql"), logger);
         await RunScriptAsync(master, Path.Combine(scriptsPath, "08_ReaderPortal_Update.sql"), logger);
+        await RunScriptAsync(master, Path.Combine(scriptsPath, "08_ReaderAccounts.sql"), logger);
         await RunScriptAsync(master, Path.Combine(scriptsPath, "09_LoanRequests.sql"), logger);
         await RunScriptAsync(master, Path.Combine(scriptsPath, "10_ReturnCompensation.sql"), logger);
         await RunScriptAsync(master, Path.Combine(scriptsPath, "11_ReaderPortal_Enhancements.sql"), logger);
+        await RunScriptAsync(master, Path.Combine(scriptsPath, "10_AdminSessions.sql"), logger);
 
         await EnsureAdminAsync(connectionString, config["Database:SeedAdminPassword"], logger);
     }

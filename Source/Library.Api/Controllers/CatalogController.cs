@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Library.Api.Controllers;
 
-/// <summary>Các API công khai phục vụ duyệt danh mục và tra cứu sách trên Web.</summary>
+/// <summary>API danh mục công khai và yêu cầu đặt trước dành cho bạn đọc đã đăng nhập.</summary>
 [ApiController, Route("api/catalog")]
 public sealed class CatalogController(LibraryDbContext db) : ControllerBase
 {
@@ -20,7 +20,8 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
     [HttpGet("books")]
     public async Task<IActionResult> Search([FromQuery] string? q, [FromQuery] int? genreId,
         [FromQuery] bool availableOnly = false, [FromQuery] string? sort = null,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 12)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 12,
+        [FromQuery] string? author = null, [FromQuery] int? year = null)
     {
         page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 1, 50);
         var term = q?.Trim();
@@ -28,8 +29,12 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
         if (!string.IsNullOrWhiteSpace(term)) books = books.Where(b => b.Title.Contains(term) ||
             (b.ISBN != null && b.ISBN.Contains(term)) || b.BookAuthors.Any(x => x.Author.FullName.Contains(term)));
         if (genreId.HasValue) books = books.Where(b => b.GenreId == genreId.Value);
+        if (!string.IsNullOrWhiteSpace(author)) books = books.Where(b => b.BookAuthors.Any(x => x.Author.FullName.Contains(author.Trim())));
+        if (year.HasValue) books = books.Where(b => b.PublishedYear == year.Value);
         if (availableOnly) books = books.Where(b => b.Copies.Any(x => x.Status == "Available"));
         var total = await books.CountAsync();
+        var lastPage = total == 0 ? 1 : 1 + (total - 1) / pageSize;
+        page = Math.Min(page, lastPage);
 
         var ordered = sort?.Trim().ToLowerInvariant() switch
         {
@@ -39,7 +44,7 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
             _ => books.OrderBy(b => b.Title)
         };
 
-        var rows = await ordered.Skip((page - 1) * pageSize).Take(pageSize)
+        var rows = await ordered.ThenBy(b => b.BookId).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(b => new { id = b.BookId, title = b.Title, isbn = b.ISBN, year = b.PublishedYear,
                 genre = b.Genre == null ? "Chưa phân loại" : b.Genre.Name,
                 authors = b.BookAuthors.Select(x => x.Author.FullName).ToList(),
@@ -69,7 +74,6 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
     {
         var cardNumber = User.Identity?.Name;
         if (string.IsNullOrWhiteSpace(cardNumber)) return Unauthorized(new { error="Vui lòng đăng nhập bạn đọc." });
-
         if (request.BookId <= 0)
             return BadRequest(new { error = "Mã sách không hợp lệ." });
 
@@ -116,15 +120,22 @@ public sealed class CatalogController(LibraryDbContext db) : ControllerBase
             if (pendingCount > 0)
                 return Conflict(new { error = "Bạn đọc đã có yêu cầu đặt trước đang hoạt động cho đầu sách này." });
         }
-
         int reservationId;
         try
         {
-            await using var insCmd = conn.CreateCommand();
-            insCmd.CommandText = "INSERT INTO Reservations(ReaderId, BookId, RequestedAt, Status) OUTPUT INSERTED.ReservationId VALUES(@rId, @bId, SYSDATETIME(), 'Pending')";
-            var pr = insCmd.CreateParameter(); pr.ParameterName = "@rId"; pr.Value = readerId; insCmd.Parameters.Add(pr);
-            var pb = insCmd.CreateParameter(); pb.ParameterName = "@bId"; pb.Value = request.BookId; insCmd.Parameters.Add(pb);
-            reservationId = Convert.ToInt32(await insCmd.ExecuteScalarAsync());
+            await using var insert = conn.CreateCommand();
+            insert.CommandText =
+                "INSERT INTO Reservations(ReaderId,BookId,RequestedAt,Status) " +
+                "OUTPUT INSERTED.ReservationId VALUES(@readerId,@bookId,SYSDATETIME(),'Pending')";
+            var readerParameter = insert.CreateParameter();
+            readerParameter.ParameterName = "@readerId";
+            readerParameter.Value = readerId;
+            insert.Parameters.Add(readerParameter);
+            var bookParameter = insert.CreateParameter();
+            bookParameter.ParameterName = "@bookId";
+            bookParameter.Value = request.BookId;
+            insert.Parameters.Add(bookParameter);
+            reservationId = Convert.ToInt32(await insert.ExecuteScalarAsync());
         }
         catch (SqlException ex) when (ex.Number is 2601 or 2627)
         {

@@ -40,19 +40,64 @@ Check("hash demo trong 06_CreateDemoAdmin.sql hợp lệ",
     PasswordHashing.Verify("Admin@12345", "PBKDF2-SHA256$210000$XyqcfR5LY4Cl2fIMezFG7g==$4lHJC4BcUsZZ0U4HeWhkL5MZVzbTok5NUmIpe5DABys="));
 
 Console.WriteLine("AdminSessionStore");
-var store = new AdminSessionStore();
-var (token, session) = store.Create("thuthu1", "Librarian");
-Check("token hợp lệ tra được phiên", store.TryGet(token, out var found) && found.Username == "thuthu1" && found.Role == "Librarian");
-Check("token lạ bị từ chối", !store.TryGet("token-gia", out _));
-Check("token không chứa username/role", !token.Contains("thuthu1") && !token.Contains("Librarian"));
-store.Revoke(token);
-Check("đăng xuất hủy phiên", !store.TryGet(token, out _));
-var (lockedToken, _) = store.Create("thuthu-bi-khoa", "Librarian");
-var (activeToken, _) = store.Create("thuthu-hoat-dong", "Librarian");
-store.RevokeUserSessions("THUTHU-BI-KHOA");
-Check("khóa tài khoản thu hồi các phiên đang tồn tại", !store.TryGet(lockedToken, out _));
-Check("thu hồi phiên không ảnh hưởng tài khoản khác", store.TryGet(activeToken, out _));
-store.Revoke(activeToken);
+var sessionRepository = new InMemoryAdminSessionRepository();
+var store = new AdminSessionStore(sessionRepository);
+var (token, _) = await store.CreateAsync("thuthu1", "Librarian");
+var found = await store.TryGetAsync(token);
+Check("token hợp lệ tra được phiên", found is { Username: "thuthu1", Role: "Librarian" });
+Check("phiên dùng chung vẫn đọc được từ một store instance khác",
+    await new AdminSessionStore(sessionRepository).TryGetAsync(token) is not null);
+Check("kho chỉ nhận hash token, không nhận token gốc",
+    !token.Contains("thuthu1") && !token.Contains("Librarian") && !sessionRepository.ContainsRawToken(token));
+Check("token lạ bị từ chối", await store.TryGetAsync("token-gia") is null);
+await store.RevokeAsync(token);
+Check("đăng xuất hủy phiên", await store.TryGetAsync(token) is null);
+var (readerToken, _) = await store.CreateAsync("THE0001", "Reader", readerId: 42);
+var readerSession = await store.TryGetAsync(readerToken);
+Check("phiên bạn đọc giữ ReaderId", readerSession?.ReaderId == 42);
+Check("phiên bạn đọc giữ role Reader", readerSession?.Role == "Reader");
+var (lockedToken, _) = await store.CreateAsync("thuthu-bi-khoa", "Librarian");
+var (activeToken, _) = await store.CreateAsync("thuthu-hoat-dong", "Librarian");
+await store.RevokeUserSessionsAsync("THUTHU-BI-KHOA");
+Check("khóa tài khoản thu hồi các phiên đang tồn tại", await store.TryGetAsync(lockedToken) is null);
+Check("thu hồi phiên không ảnh hưởng tài khoản khác", await store.TryGetAsync(activeToken) is not null);
+await store.RevokeAsync(readerToken);
+await store.RevokeAsync(activeToken);
 
 Console.WriteLine($"Passed: {passed} kiểm tra.");
 Console.WriteLine("Lưu ý: chương trình kiểm thử console không thay thế kiểm thử tích hợp SQL Server/API.");
+
+sealed class InMemoryAdminSessionRepository : IAdminSessionRepository
+{
+    private readonly Dictionary<string, AdminSession> _sessions = new(StringComparer.Ordinal);
+
+    public Task SaveAsync(byte[] tokenHash, AdminSession session, CancellationToken cancellationToken)
+    {
+        _sessions[Convert.ToHexString(tokenHash)] = session;
+        return Task.CompletedTask;
+    }
+
+    public Task<AdminSession?> FindAsync(byte[] tokenHash, CancellationToken cancellationToken)
+    {
+        _sessions.TryGetValue(Convert.ToHexString(tokenHash), out var session);
+        return Task.FromResult(session);
+    }
+
+    public Task DeleteAsync(byte[] tokenHash, CancellationToken cancellationToken)
+    {
+        _sessions.Remove(Convert.ToHexString(tokenHash));
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteUserSessionsAsync(string username, CancellationToken cancellationToken)
+    {
+        foreach (var key in _sessions
+            .Where(x => x.Value.Username.Equals(username, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Key)
+            .ToArray())
+            _sessions.Remove(key);
+        return Task.CompletedTask;
+    }
+
+    public bool ContainsRawToken(string token) => _sessions.ContainsKey(token);
+}

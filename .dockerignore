@@ -9,6 +9,4 @@
 .env
 Documents/
 Tests/
-Source/Library.Web/
 Source/Library.Admin.WinForms/
-**/wwwroot/lib/

@@ -35,16 +35,16 @@ public sealed class AuthController(DbFactory db, AdminSessionStore sessions) : C
             return Unauthorized(new { error = "Tài khoản hoặc mật khẩu không đúng." });
 
         var username = request.Username.Trim();
-        var (token, session) = sessions.Create(username, role);
+        var (token, session) = await sessions.CreateAsync(username, role, cancellationToken: HttpContext.RequestAborted);
         return Ok(new { token, username, role = session.Role, expiresAt = session.ExpiresAt });
     }
 
     [HttpPost("logout")]
-    public IActionResult Logout()
+    public async Task<IActionResult> Logout()
     {
         var header = Request.Headers.Authorization.ToString();
         if (header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            sessions.Revoke(header[7..].Trim());
+            await sessions.RevokeAsync(header[7..].Trim(), HttpContext.RequestAborted);
 
         return NoContent();
     }

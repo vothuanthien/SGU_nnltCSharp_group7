@@ -24,7 +24,7 @@ Trong PowerShell, chạy:
 SqlLocalDB start MSSQLLocalDB
 ```
 
-Nếu cơ sở dữ liệu `LibraryManagement` chưa tồn tại, mở SQL Server Management Studio, kết nối tới `(localdb)\MSSQLLocalDB`, rồi chạy lần lượt các script `Database/01_CreateDatabase.sql` đến `Database/04_SeedData.sql`. Sau đó chạy `Database/07_ProfessionalSkills_Update.sql`, các migration `Database/08_ReaderPortal_Update.sql` đến `Database/11_ReaderPortal_Enhancements.sql` để bật tài khoản bạn đọc, đặt trước, yêu cầu mượn, phí bồi thường, gia hạn và thông báo; cuối cùng chạy `Database/06_CreateDemoAdmin.sql`. Script `05_TestQueries.sql` chỉ dùng để xem các truy vấn kiểm tra. Các script cập nhật có thể chạy lại an toàn; nếu phát hiện yêu cầu đang hoạt động bị trùng, script dừng để dữ liệu được rà soát.
+Nếu cơ sở dữ liệu `LibraryManagement` chưa tồn tại, chạy lần lượt `Database/01_CreateDatabase.sql` đến `Database/04_SeedData.sql`. Sau đó chạy `07_ProfessionalSkills_Update.sql`, `08_ReaderPortal_Update.sql`, `08_ReaderAccounts.sql`, `09_LoanRequests.sql`, `10_ReturnCompensation.sql`, `11_ReaderPortal_Enhancements.sql`, `10_AdminSessions.sql` và cuối cùng `06_CreateDemoAdmin.sql`. Với database có sẵn, chạy lại các migration 07–11 và 10_AdminSessions; các migration có thể chạy lại an toàn. Nếu phát hiện đặt trước đang hoạt động bị trùng, migration sẽ dừng để rà soát dữ liệu.
 
 ## 4. Chạy API
 
@@ -48,6 +48,8 @@ dotnet run --project .\Source\Library.Web\Library.Web.csproj --launch-profile ht
 ```
 
 Mở `http://localhost:5002` trên trình duyệt. API ở terminal thứ nhất cần tiếp tục chạy.
+
+Bạn đọc đăng ký tài khoản Web sau khi thủ thư đã tạo hồ sơ và cấp thẻ: chọn **Đăng ký**, nhập số thẻ, email đã lưu tại thư viện, rồi tự đặt tên đăng nhập và mật khẩu (ít nhất 10 ký tự). Sau đó đăng nhập để gửi yêu cầu đặt trước khi sách hết và xem lịch sử mượn. Khi đến quầy, thủ thư tra cứu thẻ và lập phiếu mượn trong màn hình **Mượn / Trả**.
 
 ## 6. Chạy ứng dụng quản trị Windows Forms
 
